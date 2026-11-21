@@ -62,6 +62,7 @@ WRITE_TOOLS = frozenset({
     "resize_column_stages",
     # flowsheeting objects
     "add_design_spec", "add_calculator", "remove_flowsheeting_object",
+    "add_sensitivity", "add_optimization", "add_constraint", "add_transfer",
     # utilities
     "add_utility", "batch_add_utilities", "remove_utility",
 })

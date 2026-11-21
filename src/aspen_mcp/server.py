@@ -74,6 +74,12 @@ from .tools.flowsheeting import (
     tool_get_flowsheeting_object,
     tool_remove_flowsheeting_object,
 )
+from .tools.analysis_objects import (
+    tool_add_sensitivity,
+    tool_add_optimization,
+    tool_add_constraint,
+    tool_add_transfer,
+)
 from .tools.analysis import (
     tool_sensitivity,
     tool_export_report_file,
@@ -832,6 +838,74 @@ def create_server() -> FastMCP:
         Aspen places the calculator in the sequence from its imports and exports.
         """
         return tool_add_calculator(name, defines, fortran, declarations)
+
+    @tool()
+    def add_sensitivity(
+        name: str,
+        varies: list[dict],
+        tabulate: list[str] | str,
+        defines: list[dict] | None = None,
+    ) -> str:
+        """Create an Aspen Sensitivity block (Model Analysis Tools) that Aspen runs itself.
+
+        varies: 1-5 manipulated inputs, each like
+          {"vartype": "STREAM-VAR", "stream": "2", "variable": "MOLE-FLOW",
+           "lower": 1200, "upper": 2000, "points": 9}
+          (use "increment" instead of "points" for a fixed step).
+        defines: variables to sample, same format as add_design_spec, e.g.
+          [{"name": "XMCH", "vartype": "MOLE-FRAC", "stream": "3", "component": "MCH"}]
+        tabulate: expressions to tabulate, e.g. ["XMCH"] or ["XMCH*100"].
+        After a run, get_flowsheeting_object('sensitivity', name) returns the table.
+        """
+        return tool_add_sensitivity(name, varies, tabulate, defines)
+
+    @tool()
+    def add_constraint(
+        name: str,
+        defines: list[dict],
+        expression: str,
+        operator: str,
+        bound: float | str,
+        tolerance: float | str,
+    ) -> str:
+        """Create a Constraint for optimizations: expression OPERATOR bound ± tolerance.
+
+        operator: GE (>=), LE (<=) or EQ (=). defines as in add_design_spec.
+        Reference it by name in add_optimization(constraints=[...]).
+        """
+        return tool_add_constraint(name, defines, expression, operator, bound, tolerance)
+
+    @tool()
+    def add_optimization(
+        name: str,
+        defines: list[dict],
+        objective: str,
+        sense: str,
+        varies: list[dict],
+        constraints: list[str] | None = None,
+        fortran: list[str] | str | None = None,
+    ) -> str:
+        """Create an Aspen Optimization: maximize or minimize an objective by varying inputs.
+
+        defines: sampled variables (as in add_design_spec).
+        objective: Fortran expression of the defines, e.g. "QREB" or "-PROFIT".
+        sense: "maximize" or "minimize".
+        varies: each like {"vartype": "BLOCK-VAR", "block": "B1", "sentence": "COL-SPECS",
+          "variable": "MOLE-RR", "lower": 1, "upper": 10} (optional "step_size").
+        constraints: names of constraints made with add_constraint.
+        fortran: optional Fortran lines run before the objective is evaluated.
+        """
+        return tool_add_optimization(name, defines, objective, sense, varies, constraints, fortran)
+
+    @tool()
+    def add_transfer(name: str, source: dict, destinations: list[dict]) -> str:
+        """Create a Transfer block that copies one variable's value to other inputs.
+
+        source: {"vartype": "BLOCK-VAR", "block": "SEG-1", "sentence": "PARAM",
+                 "variable": "IN-DIAM"}
+        destinations: list of the same shape, e.g. the same variable in SEG-2, SEG-3.
+        """
+        return tool_add_transfer(name, source, destinations)
 
     @tool()
     def list_flowsheeting_objects() -> dict:
