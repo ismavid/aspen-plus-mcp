@@ -59,6 +59,10 @@ from scratch and run with `PER_ERROR = 0`, product at 99.84 wt% benzyl alcohol, 
   working copy's .edr XML), `get_utility_costs` (Utility-Sum totals). Converting a HeatX to
   rigorous mode, Economic Evaluation (capital cost) and Energy Analyzer have no working
   COM route on V15 and stay in the GUI
+- **Property analysis, estimation, regression**: `add_binary_analysis` (Txy/Pxy),
+  `add_pure_analysis`, `get_property_analysis`; `get_estimation_results`,
+  `set_estimation_method`; `set_run_class` (DRS for regression), `add_regression_data`,
+  `add_regression_case`, `get_regression`
 - **Diagnostics**: convergence report after every run, knowledge base, incomplete-input scan, tear streams
 
 ## Requirements
@@ -298,6 +302,8 @@ src/aspen_mcp/
   tools/analysis_objects.py  sensitivity, optimization, constraint, transfer
   tools/layout.py            block positions (.bkp PFSVData text)
   tools/edr.py               EDR .edr XML read/edit, utility costs
+  tools/prop_analysis.py     property analysis (binary, pure)
+  tools/prop_estimation.py   estimation (PCES) and data regression (DRS)
   tools/flowsheeting.py  design specs, calculators (Flowsheeting Options tree)
   tools/units.py       value + unit reading (UnitString), unit-set lookup
   tools/connectivity.py  stream source/destination, block inlets/outlets

@@ -71,6 +71,7 @@ WRITE_TOOLS = frozenset({
     "set_edr_inputs",
     # property analysis
     "add_binary_analysis", "add_pure_analysis", "set_estimation_method", "set_run_class",
+    "add_regression_data", "add_regression_case",
 })
 
 

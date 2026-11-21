@@ -43,6 +43,8 @@ def test_plan_pxy_and_validation():
 def test_plan_pure():
     p = pa.plan_pure("cpig", ["water"], 25, 200, points=8, t_units="C")
     assert ("PUREPROP", "CPIG") in p["writes"] and ("COMPS", ["WATER"]) in p["rows"]
+    names = [w[0] for w in p["writes"]]
+    assert "VARVALUE" in names and "TVARVALUE" not in names   # live V15: PURE has no TVARVALUE
     with pytest.raises(SpecError):
         pa.plan_pure("CP", ["WATER"], 200, 25)
 
@@ -59,7 +61,8 @@ def test_flatten_table_and_vapour_fraction():
     assert t["KVL TOTAL MCH"] == [1.0, 0.9, 0.8]
     pa.add_vapor_fractions(t, ["TOLUENE", "MCH"])
     assert t["y TOLUENE (K*x)"] == pytest.approx([0.0, 0.55, 1.0])
-    assert "y MCH (K*x)" not in t          # no x column for MCH
+    # Live V15: the MCH liquid x column is mostly empty, so x_MCH = 1 - x_TOLUENE.
+    assert t["y MCH (K*x)"] == pytest.approx([1.0, 0.45, 0.0])
 
 
 def test_analysis_tools_registered_as_writes():

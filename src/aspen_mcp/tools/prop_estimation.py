@@ -135,6 +135,12 @@ def tool_set_estimation_method(component: str, param: str, method: str = "DEFINI
             n = vec.Elements.Count
             vec.Elements.InsertRow(0, n)
             vec.Elements.SetLabel(0, n, False, comp)
+        row = _child(vec, comp)
+        if row is not None and _child(row, "#0") is None:
+            try:                         # an existing row may have no "#0" cell after a reload
+                row.Elements.InsertRow(0, 0)
+            except Exception:
+                pass
         _set(inp, ["METHODU", prm, comp, "#0"], meth)
         notes = []
         un = _child(inp, "UNCHOICE")
@@ -226,3 +232,160 @@ def tool_get_regression(case: str | None = None) -> dict:
         return aspen.call(impl)
     except Exception as exc:
         return {"error": str(exc)}
+
+
+# ── building regressions (recipe verified live on V15 drs1, 2026-11-21) ──────
+DATA = r"\Data\Properties\Data"
+
+
+def plan_regression_params(params: list[dict]) -> list[list[tuple[str, Any]]]:
+    """Ordered writes per parameter row. TYPE must come first, or NRTL/CIDs are rejected."""
+    if not params:
+        raise SpecError("Give at least one parameter row.")
+    rows = []
+    for p in params:
+        name = str(p.get("param", "")).strip().upper()
+        if not name:
+            raise SpecError("Each parameter row needs 'param' (e.g. NRTL, WILSON, TC).")
+        ci, cj = p.get("i") or p.get("comp_i"), p.get("j") or p.get("comp_j")
+        kind = str(p.get("type") or ("BI-PARAMETER" if cj else "PARAMETER")).upper()
+        w: list[tuple[str, Any]] = [("TYPE", kind), ("PARAMNAME", name),
+                                    ("ELEMNO", int(p.get("element", p.get("elem", 1))))]
+        if ci:
+            w.append(("CIDI", str(ci).upper()))
+        if kind == "BI-PARAMETER":
+            if not cj:
+                raise SpecError(f"{name}: a binary parameter needs both i and j.")
+            w.append(("CIDJ", str(cj).upper()))
+        w.append(("USAGE", str(p.get("usage", "REGRESS")).upper()))
+        for k, node in (("initial", "PINIT"), ("lower", "LOWER"), ("upper", "UPPER")):
+            if p.get(k) is not None:
+                w.append((node, float(p[k])))
+        rows.append(w)
+    return rows
+
+
+def check_points(points: list[list[Any]], ncols: int) -> None:
+    if not points:
+        raise SpecError("Give at least one data point.")
+    for i, row in enumerate(points):
+        if len(row) != ncols:
+            raise SpecError(f"Point {i + 1} has {len(row)} values; this data set has {ncols} columns.")
+
+
+def _value_columns(value_node: Any) -> list[str]:
+    els = value_node.Elements
+    n = els.RowCount(1)                 # dimension 1 = variable (TEMPERATURE, PRESSURE, X, Y)
+    cols = []
+    for j in range(n):
+        try:
+            cols.append(f"{els.Label(1, j)} {els.Label(2, j)}")
+        except Exception:
+            cols.append(str(j))
+    return cols
+
+
+def tool_add_regression_data(name: str, components: list[str], points: list[list[Any]] | None = None,
+                             std_dev: list[Any] | None = None, statespec: str = "TPXY",
+                             data_type: str = "EQUILIBRIUM") -> dict:
+    """Create a MIXTURE data set; with points=None, only report its column order."""
+    from ..com_bridge import aspen
+    nm = str(name).strip().upper()
+
+    def impl():
+        root = aspen._app.RootModel("")
+        folder = root.FindNode(DATA)
+        if folder is None:
+            raise SpecError("No Properties\\Data folder.")
+        if _child(folder, nm) is None:
+            folder.Elements.Add(f"{nm}!MIXTURE")
+            inp = _child(_child(folder, nm), "Input")
+            if inp is None:
+                raise SpecError(f"Aspen did not create data set {nm}.")
+            try:
+                _set(inp, ["DATATYPE1"], str(data_type).upper())
+                cids = _child(inp, "CIDS")
+                for i, c in enumerate(components):
+                    cids.Elements.InsertRow(0, i)
+                    _set(inp, ["CIDS", i], str(c).upper())
+                _set(inp, ["STATESPEC"], str(statespec).upper())
+            except Exception:
+                try:
+                    folder.Elements.Remove(nm)
+                except Exception:
+                    pass
+                raise
+        inp = _child(_child(folder, nm), "Input")
+        value = _child(inp, "VALUE")
+        cols = _value_columns(value)
+        if not points:
+            return {"data_set": nm, "columns": cols,
+                    "note": "Call again with points (one list per point, in this column order)."}
+        check_points(points, len(cols))
+        sd = std_dev or ["0.1"] * len(cols)
+        check_points([sd], len(cols))
+        rows = [sd] + list(points)          # point 0 is the standard-deviation row
+        for i, row in enumerate(rows):
+            value.Elements.InsertRow(0, i)
+            for c, v in enumerate(row):     # cell (point, column, column)
+                if v is not None:
+                    value.Elements.Item(i, c, c).Value = v
+        use = _child(inp, "USE")
+        for i in range(len(rows)):
+            if _child(use, i) is None:
+                use.Elements.InsertRow(0, i)
+            _set(inp, ["USE", i], "STD-DEV" if i == 0 else "DATA")
+        return {"data_set": nm, "columns": cols, "points": len(points)}
+    try:
+        return aspen.call(impl)
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def tool_add_regression_case(name: str, data_sets: dict[str, float], params: list[dict],
+                             property_method: str | None = None, evaluate_only: bool = False) -> str:
+    """Create a regression case. params: [{"param": "NRTL", "element": 1, "i": "ETOAC",
+    "j": "ETHANOL"}, ...]. Needs run type DRS."""
+    from ..com_bridge import aspen
+    nm = str(name).strip().upper()
+    try:
+        rows = plan_regression_params(params)
+        if not data_sets:
+            raise SpecError("Give at least one data set, e.g. {\"VLE1\": 1.0}.")
+    except SpecError as exc:
+        return f"Error: {exc}"
+
+    def impl():
+        root = aspen._app.RootModel("")
+        reg = root.FindNode(REG)
+        if reg is None:
+            raise SpecError("No regression folder; call set_run_class('DRS') first.")
+        if _child(reg, nm) is not None:
+            raise SpecError(f"Case {nm} already exists.")
+        reg.Elements.Add(nm)
+        inp = _child(_child(reg, nm), "Input")
+        try:
+            _set(inp, ["REGRESSION"], "EVALUATION" if evaluate_only else "REGRESSION")
+            if property_method:
+                _set(inp, ["OPSETNAME"], str(property_method).upper())
+            for i, writes in enumerate(rows):
+                _child(inp, "PARAMNAME").Elements.InsertRow(0, i)
+                for node, value in writes:
+                    _set(inp, [node, i], value)
+            weight = _child(inp, "WEIGHT")
+            for k, (ds, wv) in enumerate(data_sets.items()):
+                weight.Elements.InsertRow(0, k)
+                weight.Elements.SetLabel(0, k, False, str(ds).upper())
+                _set(inp, ["WEIGHT", str(ds).upper()], float(wv))
+        except Exception:
+            try:
+                reg.Elements.Remove(nm)
+            except Exception:
+                pass
+            raise
+        return (f"Regression case {nm} created with {len(rows)} parameter(s) and data set(s) "
+                f"{', '.join(map(str, data_sets))}. Run, then get_regression('{nm}').")
+    try:
+        return aspen.call(impl)
+    except Exception as exc:
+        return f"Error: {exc}"

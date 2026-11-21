@@ -86,11 +86,16 @@ def plan_pure(prop: str, components: list[str], t_lower: float, t_upper: float,
         raise SpecError("Give at least one component.")
     if float(t_lower) >= float(t_upper):
         raise SpecError("t_lower must be below t_upper.")
-    writes: list[tuple[str, Any]] = [("PUREPROP", str(prop).strip().upper()),
-                                     ("TVARVALUE", "RANGE"), ("TLOWER", float(t_lower)),
-                                     ("TUPPER", float(t_upper)), ("TNPOINT", int(points))]
+    # PURE uses VARVALUE for the temperature selector (TVARVALUE exists only in BINARY).
+    # Bound names are given as alternatives; the first one Aspen has is written.
+    writes: list[tuple[Any, Any]] = [("PUREPROP", str(prop).strip().upper()),
+                                     (("TVARNAME",), "TEMP"), ("VARVALUE", "RANGE"),
+                                     (("TLOWER", "LOWER"), float(t_lower)),
+                                     (("TUPPER", "UPPER"), float(t_upper)),
+                                     (("OPT_TPTINCR", "OPT_PTINCR", "OPT_CPTINCR"), "POINT"),
+                                     (("TNPOINT", "NPOINT"), int(points))]
     if t_units:
-        writes.append(("TUNITLABEL", t_units))
+        writes.append((("TUNITLABEL", "UNITLABEL"), t_units))
     writes += [("PVARVALUE", "LIST"), ("PUNITLABEL", p_units or "atm")]
     if property_method:
         writes.append(("OPSETNAME", str(property_method).upper()))
@@ -141,12 +146,24 @@ def flatten_table(prop_data: Any) -> dict[str, list]:
 
 
 def add_vapor_fractions(table: dict[str, list], comps: list[str]) -> None:
-    """y_i = K_i * x_i when the table has KVL and liquid mole fractions."""
-    for comp in comps:
-        k = next((v for n, v in table.items() if n.startswith("KVL") and n.endswith(comp)), None)
-        x = next((v for n, v in table.items()
-                  if n.startswith("MOLEFRAC") and n.endswith(comp) and "VAPOR" not in n), None)
-        if k and x and f"y {comp}" not in table:
+    """Binary y from K*x. comps[0] is the composition variable (CCOMP); x2 = 1 - x1.
+
+    Aspen's MOLEFRAC(P,C,N) LIQUID columns are mostly empty, so x comes from the
+    MOLEFRAC(C,N) column of the first component.
+    """
+    if not comps:
+        return
+    c1 = comps[0]
+    x1 = table.get(f"MOLEFRAC(C,N) {c1}") or next(
+        (v for n, v in table.items() if n.startswith("MOLEFRAC(C") and n.endswith(" " + c1)), None)
+    if not x1:
+        return
+    xs = {c1: x1}
+    if len(comps) > 1:
+        xs[comps[1]] = [None if a is None else 1.0 - a for a in x1]
+    for comp, x in xs.items():
+        k = next((v for n, v in table.items() if n.startswith("KVL") and n.endswith(" " + comp)), None)
+        if k:
             table[f"y {comp} (K*x)"] = [None if a is None or b is None else a * b for a, b in zip(k, x)]
 
 
@@ -167,6 +184,13 @@ def _create(name: str, plan: dict[str, Any]) -> str:
             raise SpecError(f"Aspen did not create analysis '{name}'.")
         try:
             for node, value in plan["writes"]:
+                if isinstance(node, tuple):          # alternatives: first that exists
+                    hit = next((n for n in node if _child(inp, n) is not None), None)
+                    if hit is None:
+                        if len(node) == 1:
+                            continue                 # optional node
+                        raise SpecError(f"Aspen has none of the input nodes {', '.join(node)}")
+                    node = hit
                 _set(inp, [node], value)
             for vector, values in plan["rows"]:
                 for v in values:

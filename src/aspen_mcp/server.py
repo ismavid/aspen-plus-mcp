@@ -97,6 +97,8 @@ from .tools.prop_estimation import (
     tool_set_estimation_method,
     tool_set_run_class,
     tool_get_regression,
+    tool_add_regression_data,
+    tool_add_regression_case,
 )
 from .tools.analysis import (
     tool_sensitivity,
@@ -1049,6 +1051,25 @@ def create_server() -> FastMCP:
         """List data regression cases, or read one: settings, parameter rows with
         initial and regressed values, objective function and deviations per data set."""
         return tool_get_regression(case)
+
+    @tool()
+    def add_regression_data(name: str, components: list[str], points: list[list] | None = None,
+                            std_dev: list | None = None, statespec: str = "TPXY",
+                            data_type: str = "EQUILIBRIUM") -> dict:
+        """Create an experimental data set for regression (statespec TPXY, TXY, PXY, TPX...).
+        Call first without points to get the column order (e.g. TEMPERATURE C, PRESSURE
+        mmHg, X ETOAC, X ETHANOL, Y ETOAC, Y ETHANOL), then with points as one list per
+        point in that order. std_dev: one value per column (e.g. 0.1, "0.1%"). Needs DRS."""
+        return tool_add_regression_data(name, components, points, std_dev, statespec, data_type)
+
+    @tool()
+    def add_regression_case(name: str, data_sets: dict, params: list[dict],
+                            property_method: str | None = None, evaluate_only: bool = False) -> str:
+        """Create a data regression case. data_sets: {"VLE1": 1.0} (weights). params:
+        [{"param": "NRTL", "element": 1, "i": "ETOAC", "j": "ETHANOL"},
+         {"param": "NRTL", "element": 1, "i": "ETHANOL", "j": "ETOAC"}, ...]
+        (optional initial/lower/upper). Run, then get_regression(name)."""
+        return tool_add_regression_case(name, data_sets, params, property_method, evaluate_only)
 
     @tool()
     def list_tear_streams() -> list[str]:
