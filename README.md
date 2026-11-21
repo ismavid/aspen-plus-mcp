@@ -240,7 +240,12 @@ configure_packed_section(block_name="T-101", section="CS-1", packing_type="MELLA
 ```bash
 pip install -e .
 python -c "import aspen_mcp.server"        # import check
+pip install -e .[test]
+pytest                                     # offline tests, no Aspen needed
 ```
+
+The tests in `tests/` stub the Windows COM modules and use a small fake
+Aspen tree, so they run on any OS.
 
 Project layout:
 
@@ -249,6 +254,8 @@ src/aspen_mcp/
   server.py            MCP tool registration (FastMCP)
   com_bridge.py        COM apartment thread, open/attach, async run
   tools/internals.py   Column Internals tools
+  tools/units.py       value + unit reading (UnitString), unit-set lookup
+  tools/connectivity.py  stream source/destination, block inlets/outlets
   tools/*.py           simulation, streams, blocks, columns, analysis, reactions, utilities
   knowledge/           convergence knowledge base
 docs/blocks/           parameter notes per Aspen block type

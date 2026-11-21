@@ -9,6 +9,8 @@ from __future__ import annotations
 from typing import Any
 
 from ..com_bridge import aspen
+from .connectivity import stream_connections
+from .units import SKIP_KEYS, collect_values_and_units, read_unit_set
 
 _STREAM_RESULT_KEYS = [
     "RES_TEMP", "RES_PRES", "RES_VFRAC", "RES_MASSFLOW",
@@ -109,24 +111,50 @@ def tool_get_stream(name: str) -> dict[str, Any]:
     res_moleflow, res_volflow, mw, comptype, destination.
     Plus mole_frac_liq (liquid mole fractions) and
     mole_frac_vap (vapor mole fractions) when available.
+
+    Also returns:
+      units        {key: unit} for every value above that has a unit
+                   (keys under "output" use their Aspen names), e.g. "F", "psia".
+      unit_set     the global input/output unit sets when Aspen exposes them.
+      connections  {"source": {block, port} | None,
+                    "destination": {block, port} | None,
+                    "role": "internal" | "feed" | "product" | "unconnected"}
     """
     try:
         def impl():
             result: dict[str, Any] = {"name": name}
+            units: dict[str, str] = {}
             tree = aspen._app.RootModel("")
             out = _walk(tree, "Data", "Streams", name, "Output")
             if out is not None:
-                all_vals = _collect_values_on_com(out)
+                all_vals, all_units = collect_values_and_units(out)
                 for k in _STREAM_RESULT_KEYS + _STREAM_META_KEYS:
                     if k in all_vals:
                         result[k.lower()] = all_vals[k]
+                        if k in all_units:
+                            units[k.lower()] = all_units[k]
                 remaining = {k: v for k, v in all_vals.items()
                              if k not in _STREAM_RESULT_KEYS + _STREAM_META_KEYS
-                             and k not in ("Unit Set", "User Table", "User Tree")}
+                             and k not in SKIP_KEYS}
                 if remaining:
                     result["output"] = remaining
+                    for k in remaining:
+                        if k in all_units:
+                            units[k] = all_units[k]
+                if all_vals.get("Unit Set"):
+                    result["stream_unit_set"] = all_vals["Unit Set"]
             else:
                 result["output_error"] = "No Output node"
+            result["units"] = units
+            unit_set = read_unit_set(tree)
+            if unit_set:
+                result["unit_set"] = unit_set
+
+            try:
+                ports = _get_block_ports_on_com() or []
+                result["connections"] = stream_connections(ports, name)
+            except Exception as exc:
+                result["connections_error"] = str(exc)
 
             # Read liquid and vapor mole fractions if available
             tree = aspen._app.RootModel("")

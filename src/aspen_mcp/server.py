@@ -268,7 +268,13 @@ def create_server() -> FastMCP:
 
     @mcp.tool()
     def get_stream(name: str) -> dict:
-        """Read stream output properties (temp, pressure, flows, etc.)."""
+        """Read stream output properties (temp, pressure, flows, etc.).
+
+        Every value comes with its unit in "units" (e.g. res_temp -> "F"),
+        the file's unit set in "unit_set", and "connections" names the
+        source and destination blocks and whether the stream is a feed,
+        product or internal stream.
+        """
         return tool_get_stream(name)
 
     @mcp.tool()
@@ -383,7 +389,12 @@ def create_server() -> FastMCP:
 
     @mcp.tool()
     def get_block(name: str) -> dict:
-        """Read block specification and results."""
+        """Read block specification and results.
+
+        "units" gives the unit of each value per section (input/output/...),
+        "unit_set" the file's unit set, and "connections" lists the block's
+        inlet and outlet streams with their ports.
+        """
         return tool_get_block(name)
 
     @mcp.tool()
