@@ -70,7 +70,7 @@ WRITE_TOOLS = frozenset({
     # EDR
     "set_edr_inputs",
     # property analysis
-    "add_binary_analysis", "add_pure_analysis",
+    "add_binary_analysis", "add_pure_analysis", "set_estimation_method", "set_run_class",
 })
 
 

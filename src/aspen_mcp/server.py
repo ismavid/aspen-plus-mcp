@@ -92,6 +92,12 @@ from .tools.prop_analysis import (
     tool_add_pure_analysis,
     tool_get_property_analysis,
 )
+from .tools.prop_estimation import (
+    tool_get_estimation_results,
+    tool_set_estimation_method,
+    tool_set_run_class,
+    tool_get_regression,
+)
 from .tools.analysis import (
     tool_sensitivity,
     tool_export_report_file,
@@ -1018,6 +1024,31 @@ def create_server() -> FastMCP:
         """Read a property analysis result table (columns such as "TEMP TOTAL",
         "MOLEFRAC(C,N) TOLUENE", "KVL TOTAL TOLUENE"; vapour y = K*x added for binaries)."""
         return tool_get_property_analysis(name)
+
+    @tool()
+    def get_estimation_results(component: str | None = None) -> dict:
+        """Property estimation (PCES) results: estimated constants (TC, PC, ZC...) and
+        T-dependent parameters (CPIG, PLXANT...) with methods, plus the estimation
+        switches (UNCHOICE=NO means constants are not estimated at all)."""
+        return tool_get_estimation_results(component)
+
+    @tool()
+    def set_estimation_method(component: str, param: str, method: str = "DEFINITI") -> str:
+        """Have Aspen estimate one pure-component constant (e.g. ZC by DEFINITI, TC by
+        JOBACK). Also switches pure-constant estimation on if it was off."""
+        return tool_set_estimation_method(component, param, method)
+
+    @tool()
+    def set_run_class(run_class: str) -> str:
+        """Set the run type: FLOWSHEET, PROP (property analysis), PCES (estimation) or
+        DRS / REGRESSION (data regression; makes Properties > Regression available)."""
+        return tool_set_run_class(run_class)
+
+    @tool()
+    def get_regression(case: str | None = None) -> dict:
+        """List data regression cases, or read one: settings, parameter rows with
+        initial and regressed values, objective function and deviations per data set."""
+        return tool_get_regression(case)
 
     @tool()
     def list_tear_streams() -> list[str]:
