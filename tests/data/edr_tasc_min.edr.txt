@@ -1,0 +1,114 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<HTEdata FileSignature="AspenTech/EDR V15 (41.0.0.451)">
+  <application name="Tasc">
+    <match>false</match>
+    <result>101</result>
+    <uomset>1</uomset>
+    <engineuomset>1</engineuomset>
+    <scalars type="input">
+      <scalar name="BafCutPerc">
+        <uom />
+        <value>39.695</value>
+        <source>User</source>
+      </scalar>
+      <scalar name="BafNum">
+        <uom />
+        <value>6</value>
+        <source>User</source>
+      </scalar>
+      <scalar name="BafSpcCC">
+        <uom>in</uom>
+        <value>5.7087</value>
+        <source>User</source>
+      </scalar>
+      <scalar name="ShlID">
+        <uom>in</uom>
+        <value>6.065</value>
+        <source>User</source>
+      </scalar>
+      <scalar name="TubeLng">
+        <uom>in</uom>
+        <value>47.2441</value>
+        <source>User</source>
+      </scalar>
+      <scalar name="TubeNum">
+        <uom />
+        <value>18</value>
+        <source>User</source>
+      </scalar>
+      </scalars>
+    <arrays type="input">
+      <array name="Comp01LiqMoleFrc" SizePerSet="24">
+        <uom />
+        <stream streamnumber="1">
+          <values>
+            <valueslist list=",,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,,,,,,,,,,,,,,,,,,,,,,,,1" />
+            <sourcelist list="Default,Default,User,User,User,User,User,User,User,User,User,User,User,User,User,User,User,User,User,User,User,User,User,User,Default,Default,Default,Default,Default,Default,Default,Default,Default,Default,Default,Default,Default,Default,Default,Default,Default,Default,Default,Default,Default,Default,Default,User" />
+          </values>
+        </stream>
+      </array>
+      <array name="NozActualIDSS">
+        <uom>in</uom>
+        <values>
+          <valueslist list="0.622,0.622" />
+          <sourcelist list="Default,Default" />
+        </values>
+      </array>
+      <array name="NozActualODSS">
+        <uom>in</uom>
+        <values>
+          <valueslist list="0.84,0.84" />
+          <sourcelist list="User,User" />
+        </values>
+      </array>
+      </arrays>
+    <scalars type="results">
+      <scalar name="AreaRatioDirty">
+        <uom>-</uom>
+        <value>9.769727</value>
+        <source>Calculated</source>
+      </scalar>
+      <scalar name="PresDropCalcSS">
+        <uom>psi</uom>
+        <value>54.3762321</value>
+        <source>Calculated</source>
+      </scalar>
+      <scalar name="RV2InNoz">
+        <uom>lb/(ft*s2)</uom>
+        <value>9864255</value>
+        <source>Calculated</source>
+      </scalar>
+      <scalar name="RV2LimInNoz">
+        <uom>lb/(ft*s2)</uom>
+        <value>1499.83875</value>
+        <source>Calculated</source>
+      </scalar>
+      <scalar name="RV2Violation">
+        <uom />
+        <value>1</value>
+        <source>Calculated</source>
+      </scalar>
+      <scalar name="TEMAType">
+        <value>BEM</value>
+        <source>User</source>
+      </scalar>
+      <scalar name="TubeLng">
+        <uom>in</uom>
+        <value>47.2440948</value>
+        <source>Calculated</source>
+      </scalar>
+      <scalar name="TubeOD">
+        <uom>in</uom>
+        <value>0.75</value>
+        <source>Calculated</source>
+      </scalar>
+      <scalar name="VibIndicationTasc">
+        <uom />
+        <value>3</value>
+        <source>Calculated</source>
+      </scalar>
+      </scalars>
+    <arrays type="results">
+      </arrays>
+    </application>
+</HTEdata>

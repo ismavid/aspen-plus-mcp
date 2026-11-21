@@ -81,6 +81,12 @@ from .tools.analysis_objects import (
     tool_add_transfer,
 )
 from .tools.layout import tool_get_layout, tool_move_blocks
+from .tools.edr import (
+    tool_list_edr_exchangers,
+    tool_get_edr,
+    tool_set_edr_inputs,
+    tool_get_utility_costs,
+)
 from .tools.analysis import (
     tool_sensitivity,
     tool_export_report_file,
@@ -947,6 +953,37 @@ def create_server() -> FastMCP:
         Refused on a document attached from the GUI.
         """
         return tool_move_blocks(moves, relative, move_terminals)
+
+    @tool()
+    def list_edr_exchangers() -> dict:
+        """List HeatX blocks with their EDR (.edr) file and key rigorous results:
+        area ratio, pressure drops, nozzle rho-v2 check, vibration, TEMA type."""
+        return tool_list_edr_exchangers()
+
+    @tool()
+    def get_edr(block: str, names: list[str] | None = None) -> dict:
+        """Read one rigorous HeatX's EDR results and geometry (shell ID, tubes, length,
+        baffles, nozzles). names: extra EDR scalar/array names to return, e.g.
+        ["ExcessSurfDirty", "NozActualIDTS"]."""
+        return tool_get_edr(block, names)
+
+    @tool()
+    def set_edr_inputs(block: str, scalars: dict | None = None, arrays: dict | None = None) -> str:
+        """Edit the EDR geometry of a rigorous HeatX in the working copy.
+
+        scalars: {"TubeLng": 53.63, "BafSpcCC": 6.0} (values in the file's units, see get_edr).
+        arrays: {"NozActualIDSS": {"0": 1.049}, "NozActualODSS": {"0": 1.315}}
+                (index 0 = inlet, 1 = outlet; SS = shell side, TS = tube side).
+        Then run reinit_and_run. Converting a HeatX to rigorous mode still needs the GUI.
+        """
+        return tool_set_edr_inputs(block, scalars, arrays)
+
+    @tool()
+    def get_utility_costs() -> dict:
+        """Utility cost and CO2 totals (Results Summary > Utility-Sum) and per-utility
+        usage/cost. Needs utilities defined and a run. Capital cost (Economic
+        Evaluation) and Energy Analyzer are not scriptable on V15."""
+        return tool_get_utility_costs()
 
     @tool()
     def list_tear_streams() -> list[str]:

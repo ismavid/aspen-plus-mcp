@@ -66,6 +66,15 @@ def _check_all_uncalculated() -> str | None:
         return None
 
 
+def missing_state_vars(temp, pres, vfrac) -> list[str]:
+    """A feed needs two of TEMP, PRES, VFRAC (TP, TV or PV flash spec)."""
+    if sum(v is not None for v in (temp, pres, vfrac)) >= 2:
+        return []
+    if vfrac is not None:
+        return ["TEMP or PRES (VFRAC is set)"]
+    return [n for n, v in (("TEMP", temp), ("PRES", pres)) if v is None]
+
+
 def _check_feeds_before_run() -> str | None:
     """Check feed stream inputs before running.
 
@@ -122,13 +131,10 @@ def _check_feeds_before_run() -> str | None:
                             break
                 if is_output:
                     continue
-                missing = []
-                temp = _walk(tree, "Data", "Streams", sname, "Input", "TEMP", "MIXED")
-                if temp is None or temp.Value is None:
-                    missing.append("TEMP")
-                pres = _walk(tree, "Data", "Streams", sname, "Input", "PRES", "MIXED")
-                if pres is None or pres.Value is None:
-                    missing.append("PRES")
+                def _val(var):
+                    n = _walk(tree, "Data", "Streams", sname, "Input", var, "MIXED")
+                    return None if n is None else n.Value
+                missing = missing_state_vars(_val("TEMP"), _val("PRES"), _val("VFRAC"))
                 flow_node = _walk(tree, "Data", "Streams", sname, "Input", "FLOW", "MIXED")
                 has_comp = False
                 if flow_node is not None:
