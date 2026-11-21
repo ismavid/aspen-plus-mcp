@@ -51,6 +51,9 @@ from scratch and run with `PER_ERROR = 0`, product at 99.84 wt% benzyl alcohol, 
 - **Aspen Sensitivity, Optimization, Constraint, Transfer blocks**: `add_sensitivity`
   (1-5 varied inputs, tabulated expressions), `add_optimization` (maximize/minimize with
   constraints), `add_constraint`, `add_transfer`
+- **Flowsheet layout**: `get_layout` (block and stream positions), `move_blocks` (absolute or
+  relative moves; attached streams follow). Positions live only in the .bkp graphics
+  section, so these save the working copy as .bkp, edit it and reopen it
 - **Diagnostics**: convergence report after every run, knowledge base, incomplete-input scan, tear streams
 
 ## Requirements
@@ -288,6 +291,7 @@ src/aspen_mcp/
   tools/internals.py   Column Internals tools
   safety.py            working copies, protected saves, change log
   tools/analysis_objects.py  sensitivity, optimization, constraint, transfer
+  tools/layout.py            block positions (.bkp PFSVData text)
   tools/flowsheeting.py  design specs, calculators (Flowsheeting Options tree)
   tools/units.py       value + unit reading (UnitString), unit-set lookup
   tools/connectivity.py  stream source/destination, block inlets/outlets
