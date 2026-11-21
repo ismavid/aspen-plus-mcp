@@ -194,8 +194,18 @@ def test_add_calculator_and_list_get_remove(aspen_tree):
     assert listing["calculator"] == ["C1"] and listing["design-spec"] == []
     got = fs.tool_get_flowsheeting_object("calc", "C1")
     assert got["input"]["FVN_VARIABLE"]["P"] == "PRES"
+    assert got["input"]["FORTRAN_EXEC"] == {"#0": "F        P = TF/10"}
+    assert got["input"]["WRITE_VAR"] == {"#0": "P"}
     assert fs.tool_remove_flowsheeting_object("calculator", "C1") == "Removed calculator 'C1'"
     assert fs.tool_list_flowsheeting_objects()["calculator"] == []
+
+
+def test_dump_reads_vector_rows_not_row_count():
+    """Aspen vectors report a ValueType and Value = row count; rows must win."""
+    vec = Node("FINAL_VAL", children=[Node("#0", 1395.95)])
+    vec.ValueType = 1
+    vec.Value = 1
+    assert fs._dump(Node("Output", children=[vec]), 3) == {"FINAL_VAL": {"#0": 1395.95}}
 
 
 def test_new_tools_are_registered_and_logged():

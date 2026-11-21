@@ -350,11 +350,18 @@ def _dump(node: Any, depth: int = 3) -> Any:
     if node is None:
         return None
     try:
-        if node.ValueType != 0:
+        n_children = node.Elements.Count
+    except Exception:
+        n_children = 0
+    if not n_children:
+        # Scalar (vectors also report a ValueType, with Value = row count).
+        try:
+            if node.ValueType == 0:
+                return None
             u = node_unit(node)
             return {"value": node.Value, "unit": u} if u else node.Value
-    except Exception:
-        return None
+        except Exception:
+            return None
     if depth <= 0:
         return "…"
     out: dict[str, Any] = {}
@@ -400,8 +407,8 @@ def tool_get_flowsheeting_object(kind: str, name: str) -> dict[str, Any]:
         if obj is None:
             return {"error": f"{k} '{name}' not found"}
         return {"kind": k, "name": name,
-                "input": _dump(_child(obj, "Input"), 2),
-                "output": _dump(_child(obj, "Output"), 2)}
+                "input": _dump(_child(obj, "Input"), 3),
+                "output": _dump(_child(obj, "Output"), 3)}
     try:
         return aspen.call(impl)
     except Exception as exc:
