@@ -7,6 +7,7 @@ import shutil
 import tempfile
 
 from ..com_bridge import aspen
+from .. import safety
 from .analysis import _get_convergence_report
 
 
@@ -172,7 +173,12 @@ def tool_status() -> dict:
 def tool_attach(file_path: str | None = None) -> str:
     """Attach to a simulation already open in the Aspen Plus GUI."""
     try:
-        return "Attached to " + aspen.attach(file_path)
+        target = aspen.attach(file_path)
+        safety.state.mark_attached(target)
+        return ("Attached to " + target + "\n"
+                "Note: this is your own file open in the GUI, not a copy. Edits change it "
+                "directly; save() is refused unless you pass file_path (save a copy) or "
+                "allow_overwrite=True.")
     except Exception as exc:
         return "Error: " + str(exc)
 
@@ -180,7 +186,13 @@ def tool_attach(file_path: str | None = None) -> str:
 def tool_open_file(file_path: str) -> str:
     """Open an Aspen Plus simulation (.apw/.apwz/.bkp)."""
     try:
-        opened = aspen.open_file(file_path)
+        working = safety.state.prepare_open(file_path)
+        opened = aspen.open_file(working)
+        if working != os.path.abspath(file_path):
+            return ("Opened a working copy: " + str(opened or working) + "\n"
+                    "Original (not modified): " + os.path.abspath(file_path) + "\n"
+                    "save() writes to the working copy; every change is logged to "
+                    + str(safety.state.log_path))
         return "Opened " + str(opened or file_path)
     except Exception as exc:
         exc_str = str(exc)
@@ -229,11 +241,24 @@ def tool_run_async() -> str:
         return "Error: " + str(exc)
 
 
-def tool_save(file_path: str | None = None) -> str:
-    """Save the simulation. Optionally provide SaveAs path."""
+def tool_save(file_path: str | None = None, allow_overwrite: bool = False) -> str:
+    """Save the simulation. Optionally provide SaveAs path.
+
+    Refuses to overwrite the original file, a GUI-attached document (without
+    a path) or anything under a protected folder unless allow_overwrite=True
+    (protected folders are always refused).
+    """
     try:
+        err = safety.state.check_save(file_path, allow_overwrite)
+        if err:
+            return err
+        if file_path:
+            file_path = os.path.abspath(file_path)
         aspen.save(file_path)
-        return "Saved to " + str(file_path) if file_path else "File saved"
+        if file_path:
+            safety.state.working = file_path
+            return "Saved to " + file_path
+        return "File saved" + (f" ({safety.state.working})" if safety.state.working else "")
     except Exception as exc:
         return "Error: " + str(exc)
 
@@ -287,6 +312,9 @@ def tool_new_simulation() -> str:
         _work_path = os.path.join(tempfile.gettempdir(), "aspen_blank_" + str(os.getpid()) + ".apw")
         shutil.copy2(_TEMPLATE, _work_path)
         aspen.open_file(_work_path)
+        safety.state.reset()
+        safety.state.working = _work_path
+        safety.state.log_path = _work_path + ".changes.jsonl"
         return ("New blank simulation created.\n"
                 "  - Components: none (add with add_component)\n"
                 "  - Property: PENG-ROB (change with set_property_method)\n"

@@ -103,6 +103,32 @@ Add to `%APPDATA%\Claude\claude_desktop_config.json`:
 - Restart Claude Desktop completely after editing the file
 - If Aspen Plus is installed elsewhere, set `ASPEN_PLUS_EXE` to the path of `AspenPlus.exe`
 
+## Safety: working copies and change log
+
+Your original simulation files are never modified by default.
+
+- **Copy on open.** `open_file("C:\\cases\\mch.bkp")` opens a timestamped copy such as
+  `C:\cases\aspen_mcp_work\mch__work_20261121-201500.bkp`. If the folder next to the
+  original is not writable (for example Aspen's examples under Program Files), the copy
+  goes to `%USERPROFILE%\aspen_mcp_work`. Reopening a working copy does not copy it again.
+- **Protected saves.** `save()` writes to the working copy. Saving over the original,
+  or saving a document you attached from the GUI without a path, is refused unless you
+  pass `allow_overwrite=True`. Folders under Program Files and `ASPEN_MCP_PROTECTED`
+  are always refused.
+- **Change log.** Every write tool (`set_*`, `add_*`, `remove_*`, `connect`, `run`,
+  `save`, ...) appends a JSON line to `<working copy>.changes.jsonl` with the time,
+  tool, arguments, result and, for value edits, the old value and its unit.
+  `get_change_log()` shows the latest entries, and `safety_status()` shows which file
+  is open and where the log is.
+
+| Variable | Effect |
+|---|---|
+| `ASPEN_MCP_COPY_ON_OPEN=0` | open files in place (old behaviour) |
+| `ASPEN_MCP_WORKDIR` | folder for working copies |
+| `ASPEN_MCP_PROTECTED` | extra folders that can never be saved to (`;`-separated) |
+
+`attach` binds to your own document in the GUI, not a copy: edits change it directly.
+
 ## Usage
 
 ### Running the server
@@ -254,6 +280,7 @@ src/aspen_mcp/
   server.py            MCP tool registration (FastMCP)
   com_bridge.py        COM apartment thread, open/attach, async run
   tools/internals.py   Column Internals tools
+  safety.py            working copies, protected saves, change log
   tools/units.py       value + unit reading (UnitString), unit-set lookup
   tools/connectivity.py  stream source/destination, block inlets/outlets
   tools/*.py           simulation, streams, blocks, columns, analysis, reactions, utilities

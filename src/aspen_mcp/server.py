@@ -12,6 +12,7 @@ import sys
 from fastmcp import FastMCP
 
 from .com_bridge import aspen
+from . import safety
 from .tools.simulation import (
     tool_status,
     tool_attach,
@@ -153,17 +154,87 @@ except Exception:
     pass
 
 
+def _read_old_value(tool_name: str, args: dict) -> dict | None:
+    """Read the value a write tool is about to replace (for the change log)."""
+    if tool_name == "set_param":
+        parts = ("Data", "Blocks", args.get("block_name"), "Input", args.get("param"))
+    elif tool_name == "set_stream_param":
+        parts = ("Data", "Streams", args.get("stream_name"), "Input", args.get("param"))
+    elif tool_name == "set_stream_composition":
+        parts = ("Data", "Streams", args.get("stream_name"), "Input", "FLOW", "MIXED",
+                 args.get("component"))
+    elif tool_name == "set_value":
+        parts = None
+    else:
+        return None
+    if aspen._app is None:
+        return None
+
+    def impl():
+        root = aspen._app.RootModel("")
+        if parts is None:
+            node = root.FindNode(args.get("path"))
+        else:
+            node = root
+            for p in parts:
+                if p is None:
+                    return None
+                try:
+                    node = node.Elements(p)
+                except Exception:
+                    return None
+                if node is None:
+                    return None
+            try:
+                if node.ValueType == 0 and node.Elements.Count > 0:
+                    node = node.Elements(0)   # stream TEMP/PRES live under MIXED
+            except Exception:
+                pass
+        if node is None:
+            return None
+        try:
+            unit = node.UnitString or None
+        except Exception:
+            unit = None
+        return {"value": node.Value, "unit": unit}
+
+    return aspen.call(impl)
+
+
 def create_server() -> FastMCP:
     mcp = FastMCP("Aspen Plus MCP")
 
+    def tool(*targs, **tkwargs):
+        """mcp.tool() that also writes every write-tool call to the change log."""
+        register = mcp.tool(*targs, **tkwargs)
+
+        def deco(fn):
+            if fn.__name__ in safety.WRITE_TOOLS:
+                fn = safety.logged(fn, _read_old_value)
+            return register(fn)
+        return deco
+
+    # ── safety ───────────────────────────────────────────────────────────
+
+    @tool()
+    def safety_status() -> dict:
+        """Show the safety layer state: original file, working copy, whether the
+        document is attached from the GUI, the change-log path and protected folders."""
+        return safety.state.status()
+
+    @tool()
+    def get_change_log(limit: int = 50) -> list[dict]:
+        """Return the last *limit* logged changes (tool, args, old value, result, time)."""
+        return safety.state.read_log(limit)
+
     # ── simulation ───────────────────────────────────────────────────────
 
-    @mcp.tool()
+    @tool()
     def status() -> dict:
         """Get the Aspen Plus connection and engine status."""
         return tool_status()
 
-    @mcp.tool()
+    @tool()
     def probe() -> dict:
         """Diagnose COM state (app, root, tree access)."""
         try:
@@ -171,20 +242,24 @@ def create_server() -> FastMCP:
         except Exception as exc:
             return {"error": str(exc)}
 
-    @mcp.tool()
+    @tool()
     def open_file(file_path: str) -> str:
         """Open an Aspen Plus simulation (.apw/.apwz via InitFromFile2, .bkp via
         InitFromArchive2). A file already open in the GUI is attached instead;
-        if DCOM cannot start Aspen, AspenPlus.exe is launched and attached."""
+        if DCOM cannot start Aspen, AspenPlus.exe is launched and attached.
+
+        By default a timestamped working copy is opened (in an aspen_mcp_work
+        folder) and the original is never modified. Set ASPEN_MCP_COPY_ON_OPEN=0
+        to open files in place."""
         return tool_open_file(file_path)
 
-    @mcp.tool()
+    @tool()
     def attach(file_path: str | None = None) -> str:
         """Attach to a simulation already open in the Aspen Plus GUI (work live in
         the user's window). Without a path, takes the first open document."""
         return tool_attach(file_path)
 
-    @mcp.tool()
+    @tool()
     def close_file() -> str:
         """Close the currently-open simulation file.
         
@@ -193,7 +268,7 @@ def create_server() -> FastMCP:
         """
         return tool_close_file()
 
-    @mcp.tool()
+    @tool()
     def run() -> str:
         """Run the simulation.
 
@@ -204,22 +279,27 @@ def create_server() -> FastMCP:
         """
         return tool_run()
 
-    @mcp.tool()
+    @tool()
     def run_async() -> str:
         """Run the simulation (asynchronous)."""
         return tool_run_async()
 
-    @mcp.tool()
-    def save(file_path: str | None = None) -> str:
-        """Save the simulation. Optionally provide a SaveAs path."""
-        return tool_save(file_path)
+    @tool()
+    def save(file_path: str | None = None, allow_overwrite: bool = False) -> str:
+        """Save the simulation. Optionally provide a SaveAs path.
 
-    @mcp.tool()
+        Saves the working copy by default. Overwriting the original file or a
+        document attached from the GUI needs allow_overwrite=True; folders under
+        Program Files or ASPEN_MCP_PROTECTED are always refused.
+        """
+        return tool_save(file_path, allow_overwrite)
+
+    @tool()
     def reinit() -> str:
         """Reinitialize the simulation (reset results)."""
         return tool_reinit()
 
-    @mcp.tool()
+    @tool()
     def reinit_and_run() -> str:
         """Reinitialize then run (async run, polled up to 1 h).
 
@@ -229,7 +309,7 @@ def create_server() -> FastMCP:
         """
         return tool_reinit_and_run()
 
-    @mcp.tool()
+    @tool()
     def new_simulation() -> str:
         """Create a new blank simulation from the built-in template.
 
@@ -239,34 +319,34 @@ def create_server() -> FastMCP:
         """
         return tool_new_simulation()
 
-    @mcp.tool()
+    @tool()
     def stop_simulation() -> str:
         """Stop the currently running simulation."""
         return tool_stop_simulation()
 
-    @mcp.tool()
+    @tool()
     def visible(show: bool) -> str:
         """Show or hide the Aspen Plus GUI window."""
         return tool_visible(show)
 
-    @mcp.tool()
+    @tool()
     def run_script(file_path: str) -> str:
         """Execute a Python script inside Aspen Plus."""
         return tool_run_script(file_path)
 
-    @mcp.tool()
+    @tool()
     def batch_refresh(off: bool) -> str:
         """Disable or re-enable GUI refresh (speed up bulk operations)."""
         return tool_batch_refresh(off)
 
     # ── streams ──────────────────────────────────────────────────────────
 
-    @mcp.tool()
+    @tool()
     def list_all_streams() -> list[str]:
         """List all stream names in the flowsheet."""
         return tool_list_all_streams()
 
-    @mcp.tool()
+    @tool()
     def get_stream(name: str) -> dict:
         """Read stream output properties (temp, pressure, flows, etc.).
 
@@ -277,12 +357,12 @@ def create_server() -> FastMCP:
         """
         return tool_get_stream(name)
 
-    @mcp.tool()
+    @tool()
     def get_stream_composition_info(name: str) -> dict:
         """Get stream composition metadata (COMPTYPE, MW, flows)."""
         return tool_get_stream_composition_info(name)
 
-    @mcp.tool()
+    @tool()
     def set_stream_param(stream_name: str, param: str, value: float, basis: str | None = None) -> str:
         """Set a stream input parameter (TEMP, PRES, TOTAL, or component with BASIS).
 
@@ -295,7 +375,7 @@ def create_server() -> FastMCP:
         """
         return tool_set_stream_param(stream_name, param, value, basis)
 
-    @mcp.tool()
+    @tool()
     def set_stream_composition(stream_name: str, component: str, flow: float) -> str:
         """Set a component's molar flow in a stream.
 
@@ -309,7 +389,7 @@ def create_server() -> FastMCP:
         """
         return tool_set_stream_composition(stream_name, component, flow)
 
-    @mcp.tool()
+    @tool()
     def set_stream_composition_batch(stream_name: str, components: dict[str, float],
                                      basis: str = "MOLE-FLOW",
                                      total_flow: float | None = None) -> str:
@@ -331,17 +411,17 @@ def create_server() -> FastMCP:
         """
         return tool_set_stream_composition_batch(stream_name, components, basis, total_flow)
 
-    @mcp.tool()
+    @tool()
     def add_stream(name: str) -> str:
         """Add a new stream to the flowsheet."""
         return tool_add_stream(name)
 
-    @mcp.tool()
+    @tool()
     def remove_stream(name: str) -> str:
         """Remove a stream from the flowsheet."""
         return tool_remove_stream(name)
 
-    @mcp.tool()
+    @tool()
     def connect(source_block: str, dest_block: str, stream_name: str | None = None,
                   source_port: str | None = None, dest_port: str | None = None) -> str:
         """Connect source_block to dest_block via an auto-created or specified stream.
@@ -353,7 +433,7 @@ def create_server() -> FastMCP:
         """
         return tool_connect(source_block, dest_block, stream_name, source_port, dest_port)
 
-    @mcp.tool()
+    @tool()
     def connect_port(block_name: str, port_name: str, stream_name: str) -> str:
         """Connect a stream to a single block port.
 
@@ -364,7 +444,7 @@ def create_server() -> FastMCP:
         """
         return tool_connect_port(block_name, port_name, stream_name)
 
-    @mcp.tool()
+    @tool()
     def disconnect(stream_name: str) -> str:
         """Disconnect a stream from all ports and remove it.
         
@@ -375,19 +455,19 @@ def create_server() -> FastMCP:
         """
         return tool_disconnect(stream_name)
 
-    @mcp.tool()
+    @tool()
     def list_block_ports(block_name: str) -> str:
         """List available ports on a block and which streams are connected."""
         return tool_list_block_ports(block_name)
 
     # ── blocks ───────────────────────────────────────────────────────────
 
-    @mcp.tool()
+    @tool()
     def list_all_blocks() -> list[str]:
         """List all block names in the flowsheet."""
         return tool_list_all_blocks()
 
-    @mcp.tool()
+    @tool()
     def get_block(name: str) -> dict:
         """Read block specification and results.
 
@@ -397,7 +477,7 @@ def create_server() -> FastMCP:
         """
         return tool_get_block(name)
 
-    @mcp.tool()
+    @tool()
     def set_param(block_name: str, param: str, value: str | float) -> str:
         """Set a block parameter value.
 
@@ -406,7 +486,7 @@ def create_server() -> FastMCP:
         """
         return tool_set_param(block_name, param, value)
 
-    @mcp.tool()
+    @tool()
     def add_block(name: str, block_type: str) -> str:
         """Add a block (HEATER, MIXER, RGIBBS, RPLUG, RCSTR, RSTOIC, etc).
 
@@ -419,7 +499,7 @@ def create_server() -> FastMCP:
             cache_block_type(name, block_type)
         return result
 
-    @mcp.tool()
+    @tool()
     def remove_block(name: str) -> str:
         """Remove a block from the flowsheet.
 
@@ -430,7 +510,7 @@ def create_server() -> FastMCP:
         uncache_block_type(name)
         return tool_remove_block(name)
 
-    @mcp.tool()
+    @tool()
     def block_status(name: str) -> dict:
         """Read block convergence status (BLKSTAT, PER_ERROR, PROPSTAT, BLKMSG).
 
@@ -440,19 +520,19 @@ def create_server() -> FastMCP:
         """
         return tool_block_status(name)
 
-    @mcp.tool()
+    @tool()
     def explore(path: str) -> dict:
         """Explore the Aspen Plus object tree at a backslash path (e.g. Data\\Properties)."""
         return tool_explore(path)
 
     # ── components / property ───────────────────────────────────────────────
 
-    @mcp.tool()
+    @tool()
     def list_components() -> list[str]:
         """List all components in the simulation."""
         return tool_list_components()
 
-    @mcp.tool()
+    @tool()
     def add_component(component_id: str) -> str:
         """Add a component to the simulation (e.g. WATER, ETHANOL).
 
@@ -462,34 +542,34 @@ def create_server() -> FastMCP:
         """
         return tool_add_component(component_id)
 
-    @mcp.tool()
+    @tool()
     def remove_component(component_id: str) -> str:
         """Remove a component from the simulation."""
         return tool_remove_component(component_id)
 
-    @mcp.tool()
+    @tool()
     def get_property_method() -> str:
         """Get the current global property method (e.g. PENG-ROB, NRTL)."""
         return tool_get_property_method()
 
-    @mcp.tool()
+    @tool()
     def set_property_method(method: str) -> str:
         """Set the global property method (e.g. NRTL, PENG-ROB, UNIQUAC, IDEAL)."""
         return tool_set_property_method(method)
 
     # ── reactions ───────────────────────────────────────────────────────────
 
-    @mcp.tool()
+    @tool()
     def add_reaction_set(name: str, reaction_type: str = "POWERLAW") -> str:
         """Create a new reaction set (POWERLAW, LHHW, GENERAL, EQUILIBRIUM)."""
         return tool_add_reaction_set(name, reaction_type)
 
-    @mcp.tool()
+    @tool()
     def remove_reaction_set(name: str) -> str:
         """Remove a reaction set and all its reactions."""
         return tool_remove_reaction_set(name)
 
-    @mcp.tool()
+    @tool()
     def add_reaction(
         reaction_set: str,
         reaction_no: int,
@@ -514,17 +594,17 @@ def create_server() -> FastMCP:
         """
         return tool_add_reaction(reaction_set, reaction_no, reactants, products, phase, exponents)
 
-    @mcp.tool()
+    @tool()
     def remove_reaction(reaction_set: str, reaction_no: int) -> str:
         """Remove a single reaction from a reaction set."""
         return tool_remove_reaction(reaction_set, reaction_no)
 
-    @mcp.tool()
+    @tool()
     def list_reaction_sets() -> list[str]:
         """List all reaction sets."""
         return tool_list_reaction_sets()
 
-    @mcp.tool()
+    @tool()
     def setup_block_reaction(
         block_name: str,
         reaction_no: int = 1,
@@ -566,34 +646,34 @@ def create_server() -> FastMCP:
 
     # ── flowsheet topology ───────────────────────────────────────────────
 
-    @mcp.tool()
+    @tool()
     def flowsheet_topology() -> str:
         """Show the flowsheet topology: source --[stream]--> destination."""
         return tool_flowsheet_topology()
 
-    @mcp.tool()
+    @tool()
     def add_side_duty(block_name: str, stage: int, duty: float) -> str:
         """Add/update a side heater/cooler duty on a RadFrac stage."""
         return tool_add_side_duty(block_name, stage, duty)
 
-    @mcp.tool()
+    @tool()
     def remove_side_duty(block_name: str, stage: int) -> str:
         """Remove a side duty from a RadFrac stage."""
         return tool_remove_side_duty(block_name, stage)
 
     # ── generic path access ──────────────────────────────────────────────
 
-    @mcp.tool()
+    @tool()
     def get_value(path: str) -> str:
         """Read a value by backslash path (e.g. \\Data\\Streams\\S1\\Output\\RES_TEMP)."""
         return tool_get_value(path)
 
-    @mcp.tool()
+    @tool()
     def set_value(path: str, value: str | float, unit: str | None = None) -> str:
         """Write a value by backslash path (e.g. \\Data\\Blocks\\B1\\Input\\TEMP)."""
         return tool_set_value(path, value, unit)
 
-    @mcp.tool()
+    @tool()
     def insert_row(path: str, dimension: int = 0) -> str:
         r"""Insert a new row in a table-type node.
 
@@ -610,7 +690,7 @@ def create_server() -> FastMCP:
 
     # ── analysis ─────────────────────────────────────────────────────────
 
-    @mcp.tool()
+    @tool()
     def sensitivity(
         block_name: str,
         variable: str,
@@ -620,12 +700,12 @@ def create_server() -> FastMCP:
         """Manual sensitivity: sweep a block variable and re-run."""
         return tool_sensitivity(block_name, variable, values, unit)
 
-    @mcp.tool()
+    @tool()
     def export_report_file(file_path: str) -> str:
         """Export the simulation report to a .rep file."""
         return tool_export_report_file(file_path)
 
-    @mcp.tool()
+    @tool()
     def diagnose(keywords: list[str]) -> str:
         """Diagnose convergence issues: live status + knowledge base search.
 
@@ -639,7 +719,7 @@ def create_server() -> FastMCP:
         """
         return tool_diagnose(keywords)
 
-    @mcp.tool()
+    @tool()
     def search_convergence_knowledge(keywords: list[str]) -> list[dict]:
         """Search convergence troubleshooting knowledge base (verbose).
 
@@ -648,7 +728,7 @@ def create_server() -> FastMCP:
         """
         return tool_search_convergence_knowledge(keywords)
 
-    @mcp.tool()
+    @tool()
     def generate_input_summary(file_path: str, mode: int = 0) -> str:
         """Generate an input summary file (.bkp) for debugging.
         
@@ -658,7 +738,7 @@ def create_server() -> FastMCP:
         """
         return tool_generate_input_summary(file_path, mode)
 
-    @mcp.tool()
+    @tool()
     def readback(file_path: str, mode: int = 0) -> str:
         """Read back a .bkp file into the current simulation.
 
@@ -671,7 +751,7 @@ def create_server() -> FastMCP:
         """
         return tool_readback(file_path, mode)
 
-    @mcp.tool()
+    @tool()
     def find_incomplete_inputs() -> str:
         """Scan the simulation for incomplete input nodes.
 
@@ -688,12 +768,12 @@ def create_server() -> FastMCP:
 
     # -- tear streams -------------------------------------------------------
 
-    @mcp.tool()
+    @tool()
     def list_tear_streams() -> list[str]:
         """List all tear streams in the simulation (recycle loops)."""
         return tool_list_tear_streams()
 
-    @mcp.tool()
+    @tool()
     def set_tear_estimate(stream_name: str, temp: float | None = None,
                            pres: float | None = None,
                            total_flow: float | None = None) -> str:
@@ -709,22 +789,22 @@ def create_server() -> FastMCP:
 
     # -- simulation warnings -------------------------------------------------
 
-    @mcp.tool()
+    @tool()
     def simulation_warnings() -> list[str]:
         """Scan for common config issues (pressure mismatch, unconnected feeds)."""
         return tool_simulation_warnings()
 
-    @mcp.tool()
+    @tool()
     def probe_f4() -> str:
         """Deep probe Aspen COM for F4/NextRequiredInput methods."""
         return tool_probe_f4()
 
-    @mcp.tool()
+    @tool()
     def validate_block(block_name: str) -> str:
         """Check block validation status (Engine.Ready, input completeness, errors)."""
         return tool_validate_block(block_name)
 
-    @mcp.tool()
+    @tool()
     def fill_trivial_params() -> str:
         """Fill trivial/meaningless active-but-unset parameters across all blocks.
 
@@ -737,14 +817,14 @@ def create_server() -> FastMCP:
         """
         return tool_fill_trivial_params()
 
-    @mcp.tool()
+    @tool()
     def deep_probe(block_name: str = "") -> str:
         """Deep probe a block's input node properties for validation info."""
         return tool_deep_probe(block_name)
 
     # -- fsplit ---------------------------------------------------------------
 
-    @mcp.tool()
+    @tool()
     def configure_fsplit(block_name: str, outlet_name: str, frac: float) -> str:
         """Add/configure a second product outlet on an FSPLIT block.
 
@@ -755,7 +835,7 @@ def create_server() -> FastMCP:
         """
         return tool_configure_fsplit(block_name, outlet_name, frac)
 
-    @mcp.tool()
+    @tool()
     def list_all_ports() -> str:
         """List all block ports and connected streams across the entire flowsheet.
 
@@ -767,7 +847,7 @@ def create_server() -> FastMCP:
 
     # -- column configuration ---------------------------------------------------
 
-    @mcp.tool()
+    @tool()
     def set_column_stages(block_name: str, nstage: int) -> str:
         """Set the number of stages on a RadFrac / ABSBR1 column.
 
@@ -780,7 +860,7 @@ def create_server() -> FastMCP:
         """
         return tool_set_column_stages(block_name, nstage)
 
-    @mcp.tool()
+    @tool()
     def set_condenser_type(block_name: str, condenser_type: str) -> str:
         """Set the condenser type on a RadFrac column.
 
@@ -791,7 +871,7 @@ def create_server() -> FastMCP:
         """
         return tool_set_condenser_type(block_name, condenser_type)
 
-    @mcp.tool()
+    @tool()
     def set_reboiler_type(block_name: str, reboiler_type: str) -> str:
         """Set the reboiler type on a RadFrac column.
 
@@ -802,7 +882,7 @@ def create_server() -> FastMCP:
         """
         return tool_set_reboiler_type(block_name, reboiler_type)
 
-    @mcp.tool()
+    @tool()
     def set_feed_stage(block_name: str, stream_name: str, stage: int) -> str:
         """Set the feed stage for a stream entering a column.
 
@@ -816,7 +896,7 @@ def create_server() -> FastMCP:
         """
         return tool_set_feed_stage(block_name, stream_name, stage)
 
-    @mcp.tool()
+    @tool()
     def set_product_stage(block_name: str, stream_name: str,
                            stage: int, phase: str = "L") -> str:
         """Set the product draw stage and phase for a column product stream.
@@ -829,7 +909,7 @@ def create_server() -> FastMCP:
         """
         return tool_set_product_stage(block_name, stream_name, stage, phase)
 
-    @mcp.tool()
+    @tool()
     def set_column_pressure(block_name: str, top_pres: float,
                              dp_stage: float | None = None) -> str:
         """Set the column pressure profile.
@@ -844,18 +924,18 @@ def create_server() -> FastMCP:
 
     # ── column internals (trays / packing, hydraulics, height) ───────────
 
-    @mcp.tool()
+    @tool()
     def list_column_internals(block_name: str, config: str | None = None) -> dict:
         """Show a RadFrac's Column Internals: configurations, sections
         (stages, tray/packing, spacing, diameter, deck, efficiency) and results."""
         return tool_list_column_internals(block_name, config)
 
-    @mcp.tool()
+    @tool()
     def add_column_internals(block_name: str, config: str = "INT-1") -> str:
         """Create a Column Internals configuration (INT-1...) and make it active."""
         return tool_add_column_internals(block_name, config)
 
-    @mcp.tool()
+    @tool()
     def add_internals_section(block_name: str, section: str, stage_start: int,
                               stage_end: int, internal_type: str = "TRAY",
                               config: str | None = None) -> str:
@@ -867,13 +947,13 @@ def create_server() -> FastMCP:
         return tool_add_internals_section(block_name, section, stage_start, stage_end,
                                           internal_type, config)
 
-    @mcp.tool()
+    @tool()
     def remove_internals_section(block_name: str, section: str,
                                  config: str | None = None) -> str:
         """Remove a section from the Column Internals."""
         return tool_remove_internals_section(block_name, section, config)
 
-    @mcp.tool()
+    @tool()
     def configure_tray_section(block_name: str, section: str, tray_type: str = "SIEVE",
                                n_passes: int = 1, tray_spacing_m: float | None = None,
                                mode: str = "INTER-SIZING", diameter_m: float | None = None,
@@ -901,7 +981,7 @@ def create_server() -> FastMCP:
             hole_area_fraction, downcomer_clearance_mm, overall_efficiency,
             foaming_factor, update_pressure, config)
 
-    @mcp.tool()
+    @tool()
     def configure_packed_section(block_name: str, section: str, packing_type: str,
                                  vendor: str | None = None, material: str | None = None,
                                  size: str | None = None,
@@ -915,28 +995,28 @@ def create_server() -> FastMCP:
                                              material, size, packed_height_m, hetp_m, mode,
                                              diameter_m, update_pressure, config)
 
-    @mcp.tool()
+    @tool()
     def set_internals_param(block_name: str, section: str | None, param: str,
                             value: str | float | int, config: str | None = None) -> str:
         """Set any Column Internals input CA_xxx (section-level, or config-level
         when section is None). Options are validated against Aspen's list."""
         return tool_set_internals_param(block_name, section, param, value, config)
 
-    @mcp.tool()
+    @tool()
     def describe_internals_params(block_name: str, name_filter: str = "",
                                   config: str | None = None) -> list[dict]:
         """List CA_xxx internals inputs with Aspen's description, unit, options
         and current value (filter by substring, e.g. 'WEIR', 'DC', 'DECK')."""
         return tool_describe_internals_params(block_name, name_filter, config)
 
-    @mcp.tool()
+    @tool()
     def get_column_hydraulics(block_name: str, config: str | None = None,
                               per_stage: bool = False) -> dict:
         """Column Internals results per section (diameter, % flood, downcomer
         backup, pressure drop, height); per_stage=True adds stage profiles."""
         return tool_get_column_hydraulics(block_name, config, per_stage)
 
-    @mcp.tool()
+    @tool()
     def oconnell_efficiency(block_name: str, light_key: str, heavy_key: str,
                             stage_from: int | None = None,
                             stage_to: int | None = None) -> dict:
@@ -945,7 +1025,7 @@ def create_server() -> FastMCP:
         return tool_oconnell_efficiency(block_name, light_key, heavy_key,
                                         stage_from, stage_to)
 
-    @mcp.tool()
+    @tool()
     def column_height_estimate(block_name: str, top_space_m: float = 1.0,
                                bottom_space_m: float | None = None,
                                sump_residence_min: float = 5.0,
@@ -956,7 +1036,7 @@ def create_server() -> FastMCP:
         return tool_column_height_estimate(block_name, top_space_m, bottom_space_m,
                                            sump_residence_min, feed_extra_spacing, config)
 
-    @mcp.tool()
+    @tool()
     def resize_column_stages(block_name: str, nstage: int,
                              feed_stages: dict[str, int] | None = None,
                              update_internals: bool = True) -> str:
@@ -965,7 +1045,7 @@ def create_server() -> FastMCP:
 
         # -- sensitivity advanced ------------------------------------------------
 
-    @mcp.tool()
+    @tool()
     def sensitivity_advanced(
         block_name: str,
         variable: str,
@@ -988,7 +1068,7 @@ def create_server() -> FastMCP:
 
     # -- table label helper ------------------------------------------------
 
-    @mcp.tool()
+    @tool()
     def set_label(path: str, index: int, label: str, dimension: int = 0) -> str:
         r"""Set a label on a table-type node at a given dimension and index.
 
@@ -1002,13 +1082,13 @@ def create_server() -> FastMCP:
 
     # -- trace --------------------------------------------------------------
 
-    @mcp.tool()
+    @tool()
     def trace_start() -> str:
         """Start recording COM call trace (for debugging differences between GUI and MCP operations)."""
         from .com_bridge import aspen
         return aspen.trace_start()
 
-    @mcp.tool()
+    @tool()
     def trace_stop() -> list:
         """Stop recording COM call trace and return the log."""
         from .com_bridge import aspen
@@ -1017,29 +1097,29 @@ def create_server() -> FastMCP:
 
     # -- cache / call log ---------------------------------------------------
 
-    @mcp.tool()
+    @tool()
     def get_call_log(limit: int = 20) -> list[dict]:
         """Show recent tool call history (up to 200 saved)."""
         return tool_get_call_log(limit)
 
-    @mcp.tool()
+    @tool()
     def clear_call_log() -> str:
         """Clear the tool call history."""
         return tool_clear_call_log()
 
-    @mcp.tool()
+    @tool()
     def get_sensitivity_history() -> list[dict]:
         """Show all saved sensitivity analysis results."""
         return tool_get_sensitivity_history()
 
-    @mcp.tool()
+    @tool()
     def clear_sensitivity_cache() -> str:
         """Clear all cached sensitivity results."""
         return tool_clear_sensitivity_cache()
 
     # -- utilities -------------------------------------------------------------
 
-    @mcp.tool()
+    @tool()
     def add_utility(utility_name: str, utility_type: str,
                     block_name: str | None = None,
                     params: dict | None = None) -> str:
@@ -1064,7 +1144,7 @@ def create_server() -> FastMCP:
         """
         return tool_add_utility(utility_name, utility_type, block_name, params)
 
-    @mcp.tool()
+    @tool()
     def batch_add_utilities(utilities: list[dict]) -> str:
         """Create multiple utilities in a single atomic COM call.
 
@@ -1086,17 +1166,17 @@ def create_server() -> FastMCP:
         """
         return tool_batch_add_utilities(utilities)
 
-    @mcp.tool()
+    @tool()
     def list_utilities() -> list[str]:
         """List all defined utilities."""
         return tool_list_utilities()
 
-    @mcp.tool()
+    @tool()
     def get_utility(name: str) -> dict:
         """Read a utility's input and output parameters."""
         return tool_get_utility(name)
 
-    @mcp.tool()
+    @tool()
     def remove_utility(name: str) -> str:
         """Remove a utility. Clears UTILITY_ID/COND_UTIL/REB_UTIL on all blocks, then removes the node.
 
@@ -1107,7 +1187,7 @@ def create_server() -> FastMCP:
 
     # -- help ----------------------------------------------------------------
 
-    @mcp.tool()
+    @tool()
     def help(topic: str | None = None) -> str:
         """Get detailed usage guide for Aspen MCP workflows.
 
