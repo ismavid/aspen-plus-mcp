@@ -223,19 +223,57 @@ def _shift_block_end(layout: Layout, s: Stream, old_block_at: tuple[float, float
     if best is None:
         return False
     _, r, idx = best
-    end = r[idx]
-    if len(r) >= 3:
-        nb = r[1] if idx == 0 else r[-2]
-        eps = 1e-6
-        if abs(nb.y - end.y) < eps:      # horizontal end segment: keep it horizontal
-            nb.y += dy
-        elif abs(nb.x - end.x) < eps:    # vertical end segment: keep it vertical
-            nb.x += dx
+    # seq runs from the far end to the block end: seq[-1] = end, seq[-2] = its neighbour.
+    seq = r if idx == len(r) - 1 else r[::-1]
+    end = seq[-1]
+    eps = 1e-6
+    if len(seq) >= 3:
+        nb = seq[-2]
+        horizontal = abs(nb.y - end.y) < eps
+        vertical = not horizontal and abs(nb.x - end.x) < eps
+        if horizontal:
+            nb.y += dy                   # keep the end segment horizontal
+        elif vertical:
+            nb.x += dx                   # keep the end segment vertical
         _write_point(layout, nb)
+        if horizontal or vertical:
+            _fix_elbow(layout, seq, horizontal, reversed_order=seq is not r)
     end.x += dx
     end.y += dy
     _write_point(layout, end)
     return True
+
+
+def _fix_elbow(layout: Layout, seq: list[RoutePoint], horizontal: bool,
+               reversed_order: bool) -> None:
+    """Keep the segment before the moved neighbour orthogonal.
+
+    If the point before it ends a perpendicular segment, slide that point;
+    otherwise insert a jog (two points) at the neighbour. Point codes follow the
+    pattern seen in V15 files: "x y" = arrives horizontally, leaves vertically.
+    """
+    eps = 1e-6
+    nb, beyond = seq[-2], seq[-3]
+    if abs(beyond.x - nb.x) < eps or abs(beyond.y - nb.y) < eps:
+        return                                   # still orthogonal
+    if len(seq) >= 4:
+        before = seq[-4]
+        if horizontal and abs(before.x - beyond.x) < eps:
+            beyond.y = nb.y                      # extend the vertical segment
+            _write_point(layout, beyond)
+            return
+        if not horizontal and abs(before.y - beyond.y) < eps:
+            beyond.x = nb.x                      # extend the horizontal segment
+            _write_point(layout, beyond)
+            return
+    p1 = (nb.x, beyond.y) if horizontal else (beyond.x, nb.y)
+    # In route order the jog reads "x y" then "y x" (horizontal end) or the reverse.
+    c1, c2 = ("x y", "y x") if horizontal else ("y x", "x y")
+    pts = [(nb.x, nb.y), p1] if reversed_order else [p1, (nb.x, nb.y)]
+    raw = layout.lines[nb.line]
+    indent = raw[: len(raw) - len(raw.lstrip())]
+    pair = [f"{indent}{c} {_fmt(x)} {_fmt(y)} {nb.tail}" for c, (x, y) in zip((c1, c2), pts)]
+    layout.lines[nb.line] = layout.newline.join(pair)   # re-parsed after each move
 
 
 def _expand_size(layout: Layout) -> None:
@@ -282,7 +320,7 @@ def move_blocks(layout: Layout, moves: dict[str, tuple[float, float]],
         _write_at(layout, b.at_line, *b.at)
         notes.append(f"{key}: ({old[0]:g}, {old[1]:g}) -> ({b.at[0]:g}, {b.at[1]:g})")
 
-        for sid, conn in connections.items():
+        for sid, conn in sorted(connections.items()):
             src, dst = conn.get("source"), conn.get("destination")
             if key not in (src, dst):
                 continue
@@ -304,6 +342,9 @@ def move_blocks(layout: Layout, moves: dict[str, tuple[float, float]],
                 notes.append(f"  stream {sid}: end at {key} moved")
             else:
                 notes.append(f"  stream {sid}: could not find its end at {key}; re-route it in the GUI")
+        # Re-parse so inserted jog points get line numbers before the next move.
+        layout.__dict__.update(parse_layout(layout.text()).__dict__)
+        upper = {k.upper(): k for k in layout.blocks}
     _expand_size(layout)
     return notes
 

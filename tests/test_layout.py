@@ -1,6 +1,6 @@
 """Offline tests for flowsheet block positions (.bkp PFSVData editing).
 
-tests/data/mch_pfs.bkp reproduces the graphics section of mch.bkp as saved by
+tests/data/mch_pfs.bkp.txt reproduces the graphics section of mch.bkp as saved by
 Aspen Plus V15 (one RadFrac B1, feeds 1 and 2, products 3 and 4), CRLF endings.
 """
 
@@ -10,7 +10,7 @@ import pytest
 
 from aspen_mcp.tools import layout as lo
 
-DATA = Path(__file__).parent / "data" / "mch_pfs.bkp"
+DATA = Path(__file__).parent / "data" / "mch_pfs.bkp.txt"   # .txt because *.bkp is git-ignored
 CONN = {"1": {"source": None, "destination": "B1"}, "2": {"source": None, "destination": "B1"},
         "3": {"source": "B1", "destination": None}, "4": {"source": "B1", "destination": None}}
 
@@ -94,3 +94,27 @@ def test_unknown_block_and_missing_section():
 def test_move_blocks_registered_as_write_tool():
     from aspen_mcp import safety
     assert "move_blocks" in safety.WRITE_TOOLS
+
+
+def _segments_orthogonal(route):
+    for a, b in zip(route, route[1:]):
+        if abs(a.x - b.x) > 1e-6 and abs(a.y - b.y) > 1e-6:
+            return False
+    return True
+
+
+def test_fixed_free_ends_keep_routes_orthogonal():
+    """Live V15 run showed diagonals when move_terminals=False; routes must stay x/y."""
+    lay = lo.parse_layout(_text())
+    lo.move_blocks(lay, {"B1": (0.0, -1.0)}, CONN, relative=True, move_terminals=False)
+    for sid in "1234":
+        r = lay.streams[sid].routes[0]
+        assert _segments_orthogonal(r), (sid, [(p.x, p.y, p.codes) for p in r])
+    s1 = lay.streams["1"].routes[0]                     # 3 points -> jog inserted
+    assert [p.codes for p in s1] == [("r", "r"), ("x", "y"), ("y", "x"), ("t", "l")]
+    assert (s1[0].x, s1[0].y) == (-1.3, 0.0) and s1[-1].y == pytest.approx(-1.0)
+    s4 = lay.streams["4"].routes[0]                     # existing vertical leg extended
+    assert len(s4) == 5 and s4[2].y == pytest.approx(-1.826154)
+    s3 = lay.streams["3"].routes[0]                     # product route listed from its free end
+    assert (s3[0].x, s3[0].y) == (5.1, 0.526154) and s3[-1].y == pytest.approx(-0.473846)
+    assert lo.parse_layout(lay.text()).streams["1"].routes[0][1].codes == ("x", "y")
