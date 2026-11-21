@@ -29,6 +29,9 @@ dependencies = [
     "pywin32>=306",
 ]
 
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
 [project.urls]
 Homepage = "https://github.com/Eduardo-Mariola/aspen-plus-mcp"
 Repository = "https://github.com/Eduardo-Mariola/aspen-plus-mcp"
@@ -40,3 +43,6 @@ aspen-mcp = "aspen_mcp.server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

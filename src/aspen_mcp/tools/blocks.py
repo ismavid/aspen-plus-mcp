@@ -10,6 +10,8 @@ from typing import Any
 
 from ..com_bridge import aspen
 from .analysis import _BLOCK_MODES
+from .connectivity import block_connections
+from .units import node_unit, read_unit_set
 
 
 def _walk(root, *parts):
@@ -22,8 +24,12 @@ def _walk(root, *parts):
     return node
 
 
-def _read_block_table_on_com(node: Any) -> dict[str, Any]:
-    """Read IHNode tree into a plain dict (called on COM thread)."""
+def _read_block_table_on_com(node: Any, units: dict[str, str] | None = None) -> dict[str, Any]:
+    """Read IHNode tree into a plain dict (called on COM thread).
+
+    If *units* is given, fill it with {key: unit} for each value that has
+    a unit; nested values use "GROUP.KEY" as the key.
+    """
     def _group(n):
         d = {}
         for i in range(10000):
@@ -40,12 +46,20 @@ def _read_block_table_on_com(node: Any) -> dict[str, Any]:
     for child_name, child in _group(node).items():
         if child.ValueType != 0:
             data[child_name] = child.Value
+            if units is not None:
+                u = node_unit(child)
+                if u:
+                    units[child_name] = u
         else:
             sub = _group(child)
             sub_data: dict[str, Any] = {}
             for sn, sv in sub.items():
                 if sv.ValueType != 0:
                     sub_data[sn] = sv.Value
+                    if units is not None:
+                        u = node_unit(sv)
+                        if u:
+                            units[f"{child_name}.{sn}"] = u
             if sub_data:
                 data[child_name] = sub_data
             else:
@@ -87,10 +101,25 @@ def tool_get_block(name: str) -> dict[str, Any]:
                 return {"error": f"Block '{name}' not found"}
             result["type"] = blk.Value
 
+            units: dict[str, dict[str, str]] = {}
             for section in ("Input", "Output", "Subobjects", "Connections", "Ports"):
                 node = _walk(tree, "Data", "Blocks", name, section)
                 if node is not None:
-                    result[section.lower()] = _read_block_table_on_com(node)
+                    sec_units: dict[str, str] = {}
+                    result[section.lower()] = _read_block_table_on_com(node, sec_units)
+                    if sec_units:
+                        units[section.lower()] = sec_units
+            result["units"] = units
+            unit_set = read_unit_set(tree)
+            if unit_set:
+                result["unit_set"] = unit_set
+
+            try:
+                from .streams import _get_block_ports_on_com
+                ports = _get_block_ports_on_com() or []
+                result["connections"] = block_connections(ports, name)
+            except Exception as exc:
+                result["connections_error"] = str(exc)
 
             return result
         return aspen.call(impl)
