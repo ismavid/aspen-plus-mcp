@@ -56,7 +56,7 @@ class _Els:
 
     def InsertRow(self, _dim, i):
         for vec in (self.o._group or [self.o]):
-            vec._kids.insert(i, Node(f"#{i}"))
+            vec._kids.insert(i, Node(f"#{i}", valid=vec._valid))
             vec.ValueType = 0
 
     def SetLabel(self, _dim, i, _flag, label):
