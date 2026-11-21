@@ -67,6 +67,13 @@ from .tools.reactions import (
     tool_list_reaction_sets,
     tool_setup_block_reaction,
 )
+from .tools.flowsheeting import (
+    tool_add_design_spec,
+    tool_add_calculator,
+    tool_list_flowsheeting_objects,
+    tool_get_flowsheeting_object,
+    tool_remove_flowsheeting_object,
+)
 from .tools.analysis import (
     tool_sensitivity,
     tool_export_report_file,
@@ -767,6 +774,82 @@ def create_server() -> FastMCP:
         return tool_find_incomplete_inputs()
 
     # -- tear streams -------------------------------------------------------
+
+    # ── flowsheeting objects: design specs, calculators ──────────────────
+
+    @tool()
+    def add_design_spec(
+        name: str,
+        defines: list[dict],
+        spec: str,
+        target: float | str,
+        tolerance: float | str,
+        vary: dict,
+        lower: float,
+        upper: float,
+        step_size: float | None = None,
+        max_step_size: float | None = None,
+    ) -> str:
+        """Create a Design Spec: vary one input until spec = target ± tolerance.
+
+        defines: sampled variables, e.g.
+          [{"name": "XMCH", "vartype": "MOLE-FRAC", "stream": "3", "component": "MCH"}]
+          [{"name": "QREB", "vartype": "BLOCK-VAR", "block": "B1", "sentence": "RESULTS",
+            "variable": "REB-DUTY"}]
+          Fields: name (Fortran name, <= 8 chars), vartype, block, stream, substream
+          (default MIXED), component, sentence, variable, id1-id3, element, propset,
+          paramno, units.
+        spec: Fortran expression of the defines, e.g. "XMCH".
+        target, tolerance: numbers or Fortran expressions, e.g. 0.98 and 0.0001.
+        vary: the manipulated input, same fields without name, e.g.
+          {"vartype": "BLOCK-VAR", "block": "B1", "sentence": "COL-SPECS", "variable": "MOLE-RR"}
+          {"vartype": "STREAM-VAR", "stream": "1", "variable": "TEMP"}
+        lower, upper: bounds of the vary in the file's units.
+        Values are checked by Aspen in order vartype → sentence → variable; an
+        invalid combination is reported and the half-built spec is removed.
+        """
+        return tool_add_design_spec(name, defines, spec, target, tolerance, vary,
+                                    lower, upper, step_size, max_step_size)
+
+    @tool()
+    def add_calculator(
+        name: str,
+        defines: list[dict],
+        fortran: list[str] | str,
+        declarations: list[str] | str | None = None,
+    ) -> str:
+        """Create a Calculator block that runs Fortran on sampled variables.
+
+        defines: like add_design_spec, plus "direction": "import" (read, default)
+          or "export" (written by the calculator, e.g. a block input). Example:
+          [{"name": "TFEED", "vartype": "STREAM-VAR", "stream": "1", "variable": "TEMP",
+            "direction": "import"},
+           {"name": "TB1", "vartype": "BLOCK-VAR", "block": "B1", "sentence": "PARAM",
+            "variable": "PRES", "direction": "export"}]
+        fortran: statements, one per line, e.g. ["TB1 = TFEED/10.0 + 14.7"]. Lines
+          are stored in Aspen's form (prefixed with "F" and spaces) automatically.
+        declarations: optional Fortran declarations, e.g. ["REAL*8 K"].
+        Aspen places the calculator in the sequence from its imports and exports.
+        """
+        return tool_add_calculator(name, defines, fortran, declarations)
+
+    @tool()
+    def list_flowsheeting_objects() -> dict:
+        """List design specs, calculators, transfers, sensitivities, optimizations
+        and constraints in the simulation."""
+        return tool_list_flowsheeting_objects()
+
+    @tool()
+    def get_flowsheeting_object(kind: str, name: str) -> dict:
+        """Read a flowsheeting object's input and results (kind: design-spec,
+        calculator, transfer, sensitivity, optimization, constraint)."""
+        return tool_get_flowsheeting_object(kind, name)
+
+    @tool()
+    def remove_flowsheeting_object(kind: str, name: str) -> str:
+        """Delete a design spec, calculator, transfer, sensitivity, optimization or
+        constraint by kind and name."""
+        return tool_remove_flowsheeting_object(kind, name)
 
     @tool()
     def list_tear_streams() -> list[str]:

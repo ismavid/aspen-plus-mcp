@@ -60,6 +60,8 @@ WRITE_TOOLS = frozenset({
     "add_column_internals", "add_internals_section", "remove_internals_section",
     "configure_tray_section", "configure_packed_section", "set_internals_param",
     "resize_column_stages",
+    # flowsheeting objects
+    "add_design_spec", "add_calculator", "remove_flowsheeting_object",
     # utilities
     "add_utility", "batch_add_utilities", "remove_utility",
 })
