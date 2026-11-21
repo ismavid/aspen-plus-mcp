@@ -19,7 +19,7 @@ def _rich_object(name):
     for v in vary:
         v._group = vary
     vary[VARY_VECS.index("VARYSENTENCE")]._valid = {"PARAM", "COL-SPECS", "RESULTS"}
-    extra = [tf.Node(n) for n in ("OPER", "MAX_MIN", *ao.EQ_NODES.values())]
+    extra = [tf.Node(n) for n in ("OPER", "MAX_MIN", "OPT_COPY", *ao.EQ_NODES.values())]
     inp._kids += vary + extra + [tf._vec("EXPR"), tf._vec("CONID")]
     return obj
 
@@ -54,8 +54,23 @@ def test_add_sensitivity_writes_rows(tree):
     inp = tree.FindNode(r"\Data\Model Analysis Tools\Sensitivity\S1\Input")
     assert inp.FindNode(r"VARYVARIABLE\#0").Value == "MOLE-FLOW"
     assert inp.FindNode(r"NPOINT\#0").Value == 5
-    assert inp.FindNode(r"EXPR\#0").Value == "XMCH"
+    assert inp.FindNode(r"EXPR\1").Value == "XMCH"
     assert inp.FindNode(r"FVN_COMPONEN\XMCH").Value == "MCH"
+
+
+def test_sensitivity_reuses_premade_blank_row(tree, monkeypatch):
+    """Aspen pre-creates vary row #0 on a new Sensitivity; it must be reused."""
+    def add(self, n):
+        obj = _rich_object(n)
+        vary = obj.Elements("Input").Elements("VARY_VARTYPE")
+        vary.Elements.InsertRow(0, 0)          # the pre-made, blank row #0
+        self.o._kids.append(obj)
+    monkeypatch.setattr(tf._Els, "Add", add)
+    ao.tool_add_sensitivity("S3", [FEED2], ["XMCH", "XMCH*100"], [XMCH])
+    inp = tree.FindNode(r"\Data\Model Analysis Tools\Sensitivity\S3\Input")
+    assert inp.FindNode("VARY_VARTYPE").Elements.Count == 1
+    assert inp.FindNode(r"VARYSTREAM\#0").Value == "2"
+    assert [c.Name for c in inp.FindNode("EXPR")._kids] == ["1", "2"]
 
 
 def test_add_optimization_with_constraint(tree):
@@ -89,6 +104,7 @@ def test_add_transfer(tree):
     inp = tree.FindNode(r"\Data\Flowsheeting Options\Transfer\T1\Input")
     assert inp.FindNode("EQBLOCK").Value == "SEG-1"
     assert inp.FindNode(r"VARYBLOCK\#1").Value == "SEG-3"
+    assert inp.FindNode("OPT_COPY").Value == "OBLOCK"
 
 
 def test_operator_and_sense_validation():

@@ -172,9 +172,34 @@ def plan_transfer(source, destinations) -> dict[str, Any]:
 
 # ── COM side ─────────────────────────────────────────────────────────────
 
+def _row_is_blank(inp: Any, vector: str, i: int) -> bool:
+    vec = _child(inp, vector)
+    row = _child(vec, i) if vec is not None else None
+    if row is None:
+        return False
+    try:
+        return row.Value in (None, "")
+    except Exception:
+        return False
+
+
+def _vary_row(inp: Any, n: int) -> int:
+    """Index for the n-th vary row: reuse a blank pre-made row, else insert one.
+
+    A new Sensitivity already has a row #0 (holding SCRUD/OPT_LIST/...);
+    writing the vary into a new #1 leaves an empty VARY sentence that
+    breaks input translation.
+    """
+    vec = _child(inp, "VARY_VARTYPE")
+    count = vec.Elements.Count if vec is not None else 0
+    if n < count and _row_is_blank(inp, "VARY_VARTYPE", n):
+        return n
+    return _insert_row(inp, "VARY_VARTYPE")
+
+
 def _apply_vary_rows(inp: Any, rows: list[list[tuple[str, Any]]]) -> None:
     for n, writes in enumerate(rows):
-        i = _insert_row(inp, "VARY_VARTYPE")
+        i = _vary_row(inp, n)
         for node, value in writes:
             try:
                 _set(inp, [node, i], value)
@@ -209,7 +234,10 @@ def tool_add_sensitivity(name: str, varies: list[dict], tabulate: list[str] | st
     def fill(inp, nm):
         _apply_rows(inp, plan["rows"])
         _apply_vary_rows(inp, plan["varies"])
-        _apply_vector(inp, "EXPR", plan["tabulate"])
+        # Tabulate rows are keyed by column number ("1", "2", ...), not "#i".
+        for col, expr in enumerate(plan["tabulate"], start=1):
+            i = _insert_row(inp, "EXPR", str(col))
+            _set(inp, ["EXPR", i], expr)
         return (f"Sensitivity '{nm}' created: {len(plan['varies'])} varied input(s), tabulating "
                 f"{', '.join(plan['tabulate'])}. Run the simulation, then read the table with "
                 f"get_flowsheeting_object('sensitivity', '{nm}').")
@@ -266,6 +294,9 @@ def tool_add_transfer(name: str, source: dict, destinations: list[dict]) -> str:
         return f"Error: {exc}"
 
     def fill(inp, nm):
+        # Default OPT_COPY (ENTSTRM) drops the SET/EQ fields from the in-session
+        # input; OBLOCK makes Aspen copy a single variable (verified live on V15).
+        _set(inp, ["OPT_COPY"], "OBLOCK")
         for node, value in plan["source"]:
             _set(inp, [node], value)
         _apply_vary_rows(inp, plan["dests"])
