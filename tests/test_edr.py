@@ -74,3 +74,25 @@ def test_feed_state_spec(t, p, v, missing):
 def test_edr_tools_registered():
     from aspen_mcp import safety
     assert "set_edr_inputs" in safety.WRITE_TOOLS
+
+
+def test_air_cooled_summary_uses_acol_names():
+    """Live V15: the air-cooled IC-406 (application "Acol") returned no results."""
+    text = _text().replace('application name="Tasc"', 'application name="Acol"')
+    s = edr.edr_summary(edr.parse_edr(text))
+    assert s["results"]["AreaRatioDirty"]["value"] == pytest.approx(9.769727)
+    text = _text().replace('application name="Tasc"', 'application name="Aple"')
+    assert "AreaRatioDirty" in edr.edr_summary(edr.parse_edr(text))["results"]
+
+
+def test_vector_nodes_report_children_not_counts():
+    """Live V15: per-utility UTL_COST etc. are vectors; Value is the row count."""
+    class N:
+        def __init__(self, name, value=None, kids=(), unit=None):
+            self.Name, self.Value, self._k, self.UnitString = name, value, list(kids), unit
+        def Elements(self, i):
+            return self._k[i]
+    vec = N("UTL_COST", 1, [N("IC-301", 0.064, unit="$/hr"), N("V-401", 0.678, unit="$/hr")])
+    assert edr._node_values(vec) == {"IC-301": {"value": 0.064, "unit": "$/hr"},
+                                     "V-401": {"value": 0.678, "unit": "$/hr"}}
+    assert edr._node_values(N("TOTUTCOST", 0.744, unit="$/hr")) == {"value": 0.744, "unit": "$/hr"}

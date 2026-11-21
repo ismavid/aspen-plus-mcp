@@ -33,10 +33,18 @@ KEY_RESULTS = {
     "Tasc": ["AreaRatioDirty", "ExcessSurfDirty", "PresDropCalcSS", "PresDropCalcTS",
              "DPratioSS", "DPratioTS", "VelSS", "VelTS", "VelInNozSS", "RV2InNoz",
              "RV2LimInNoz", "RV2Violation", "VibIndicationTasc", "TEMAType"],
+    "Acol": ["AreaRatioDirty", "AreaReqDirty", "Area", "PresDropCalcTS", "PresDropCalcOT",
+             "DPratioTS", "DPratioOT", "VelInTS", "VelFaceAct", "NumFans", "FanDiam",
+             "BundleNum", "TubesPerBundle", "TubeLngAct"],
 }
+# Used for EDR applications without their own list (e.g. plate "Aple"): any of these present.
+GENERIC_RESULTS = ["AreaRatioDirty", "ExcessSurfDirty", "AreaReqDirty", "PresDropCalcSS",
+                   "PresDropCalcTS", "PresDropCalcOT", "DPratioSS", "DPratioTS", "DPratioOT"]
 KEY_INPUTS = {
     "Tasc": ["TEMAType", "ShlID", "TubeNum", "TubeLng", "TubeOD", "TubePitch",
              "BafType", "BafSpcCC", "BafNum", "BafCutPerc"],
+    "Acol": ["TubeLng", "TubePerBund", "TubePassPerBund", "TubeRowDeep", "BayPar",
+             "FanPerBay", "FanOD", "TypeBundle"],
 }
 CODES = {
     "RV2Violation": {"1": "violation", "2": "ok"},
@@ -124,7 +132,7 @@ def edr_summary(parsed: dict[str, Any]) -> dict[str, Any]:
     noz = {n: parsed["input_arrays"][n]["values"]
            for n in ("NozActualIDSS", "NozActualIDTS") if n in parsed["input_arrays"]}
     return {"application": app,
-            "results": pick(parsed["results"], KEY_RESULTS.get(app, [])),
+            "results": pick(parsed["results"], KEY_RESULTS.get(app, GENERIC_RESULTS)),
             # Geometry as entered, else as calculated (EDR stores TEMA type, tube OD... in results).
             "geometry": {**pick(parsed["results"], KEY_INPUTS.get(app, [])),
                          **pick(parsed["input"], KEY_INPUTS.get(app, []))},
@@ -366,6 +374,15 @@ def tool_set_edr_inputs(block: str, scalars: dict | None = None, arrays: dict | 
         return "Error: " + str(exc)
 
 
+def _node_values(n: Any, depth: int = 3) -> Any:
+    """Value + unit of a scalar node; for a vector node, its children (not the row count)."""
+    from .units import node_unit, iter_children
+    kids = list(iter_children(n, 200)) if depth > 0 else []
+    if kids:
+        return {c.Name: _node_values(c, depth - 1) for c in kids}
+    return {"value": n.Value, "unit": node_unit(n)}
+
+
 UTILITY_SUM_KEYS = ("TOTUTCOST", "TOT_HEAT_COST", "TOT_COOL_COST", "ELECCOST", "ENERGY_PRICE",
                     "FEEDSTR_COST", "PRODSTR_COST", "NETSTR_COST", "NET_COST", "TCOST",
                     "CO2TAX", "NET_CO2RATE", "FEEDCO2E")
@@ -387,11 +404,7 @@ def tool_get_utility_costs() -> dict:
                 n = out_node.Elements(k)
             except Exception:
                 continue
-            kids = list(iter_children(n, 50))
-            if kids:
-                res[k] = {c.Name: {"value": c.Value, "unit": node_unit(c)} for c in kids}
-            else:
-                res[k] = {"value": n.Value, "unit": node_unit(n)}
+            res[k] = _node_values(n)
         utils = tree.FindNode(r"\Data\Utilities")
         per = {}
         for u in iter_children(utils, 200):
@@ -402,9 +415,9 @@ def tool_get_utility_costs() -> dict:
             for k in ("UTL_USAGE", "UTL_COST", "UTL_DUTY", "CO2RATE"):
                 try:
                     n = o.Elements(k)
-                    row[k] = {"value": n.Value, "unit": node_unit(n)}
                 except Exception:
-                    pass
+                    continue
+                row[k] = _node_values(n)
             if row:
                 per[u.Name] = row
         res["by_utility"] = per
