@@ -87,6 +87,19 @@ from .tools.edr import (
     tool_set_edr_inputs,
     tool_get_utility_costs,
 )
+from .tools.prop_analysis import (
+    tool_add_binary_analysis,
+    tool_add_pure_analysis,
+    tool_get_property_analysis,
+)
+from .tools.prop_estimation import (
+    tool_get_estimation_results,
+    tool_set_estimation_method,
+    tool_set_run_class,
+    tool_get_regression,
+    tool_add_regression_data,
+    tool_add_regression_case,
+)
 from .tools.analysis import (
     tool_sensitivity,
     tool_export_report_file,
@@ -984,6 +997,79 @@ def create_server() -> FastMCP:
         usage/cost. Needs utilities defined and a run. Capital cost (Economic
         Evaluation) and Energy Analyzer are not scriptable on V15."""
         return tool_get_utility_costs()
+
+    @tool()
+    def add_binary_analysis(name: str, comp1: str, comp2: str, kind: str = "TXY",
+                            pressures: list[float] | float | None = None,
+                            temperatures: list[float] | float | None = None,
+                            units: str | None = None, points: int = 11,
+                            basis: str = "MOLEFRAC", property_method: str | None = None) -> str:
+        """Create a binary property analysis (Txy at given pressures, or Pxy at given
+        temperatures) over x(comp1) = 0..1 in `points` steps. units: pressure unit for
+        TXY (default atm) or temperature unit for PXY (default C). Run, then
+        get_property_analysis(name)."""
+        return tool_add_binary_analysis(name, comp1, comp2, kind, pressures, temperatures,
+                                        units, points, basis, property_method)
+
+    @tool()
+    def add_pure_analysis(name: str, prop: str, components: list[str], t_lower: float,
+                          t_upper: float, points: int = 11, t_units: str | None = None,
+                          pressure: float = 1.0, p_units: str | None = None,
+                          property_method: str | None = None) -> str:
+        """Create a pure-component property analysis (prop e.g. CP, CPIG, DHVL, PL, RHO,
+        MU) over a temperature range at one pressure."""
+        return tool_add_pure_analysis(name, prop, components, t_lower, t_upper, points,
+                                      t_units, pressure, p_units, property_method)
+
+    @tool()
+    def get_property_analysis(name: str) -> dict:
+        """Read a property analysis result table (columns such as "TEMP TOTAL",
+        "MOLEFRAC(C,N) TOLUENE", "KVL TOTAL TOLUENE"; vapour y = K*x added for binaries)."""
+        return tool_get_property_analysis(name)
+
+    @tool()
+    def get_estimation_results(component: str | None = None) -> dict:
+        """Property estimation (PCES) results: estimated constants (TC, PC, ZC...) and
+        T-dependent parameters (CPIG, PLXANT...) with methods, plus the estimation
+        switches (UNCHOICE=NO means constants are not estimated at all)."""
+        return tool_get_estimation_results(component)
+
+    @tool()
+    def set_estimation_method(component: str, param: str, method: str = "DEFINITI") -> str:
+        """Have Aspen estimate one pure-component constant (e.g. ZC by DEFINITI, TC by
+        JOBACK). Also switches pure-constant estimation on if it was off."""
+        return tool_set_estimation_method(component, param, method)
+
+    @tool()
+    def set_run_class(run_class: str) -> str:
+        """Set the run type: FLOWSHEET, PROP (property analysis), PCES (estimation) or
+        DRS / REGRESSION (data regression; makes Properties > Regression available)."""
+        return tool_set_run_class(run_class)
+
+    @tool()
+    def get_regression(case: str | None = None) -> dict:
+        """List data regression cases, or read one: settings, parameter rows with
+        initial and regressed values, objective function and deviations per data set."""
+        return tool_get_regression(case)
+
+    @tool()
+    def add_regression_data(name: str, components: list[str], points: list[list] | None = None,
+                            std_dev: list | None = None, statespec: str = "TPXY",
+                            data_type: str = "EQUILIBRIUM") -> dict:
+        """Create an experimental data set for regression (statespec TPXY, TXY, PXY, TPX...).
+        Call first without points to get the column order (e.g. TEMPERATURE C, PRESSURE
+        mmHg, X ETOAC, X ETHANOL, Y ETOAC, Y ETHANOL), then with points as one list per
+        point in that order. std_dev: one value per column (e.g. 0.1, "0.1%"). Needs DRS."""
+        return tool_add_regression_data(name, components, points, std_dev, statespec, data_type)
+
+    @tool()
+    def add_regression_case(name: str, data_sets: dict, params: list[dict],
+                            property_method: str | None = None, evaluate_only: bool = False) -> str:
+        """Create a data regression case. data_sets: {"VLE1": 1.0} (weights). params:
+        [{"param": "NRTL", "element": 1, "i": "ETOAC", "j": "ETHANOL"},
+         {"param": "NRTL", "element": 1, "i": "ETHANOL", "j": "ETOAC"}, ...]
+        (optional initial/lower/upper). Run, then get_regression(name)."""
+        return tool_add_regression_case(name, data_sets, params, property_method, evaluate_only)
 
     @tool()
     def list_tear_streams() -> list[str]:
