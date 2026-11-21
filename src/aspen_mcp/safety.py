@@ -67,6 +67,8 @@ WRITE_TOOLS = frozenset({
     "add_utility", "batch_add_utilities", "remove_utility",
     # flowsheet drawing
     "move_blocks",
+    # EDR
+    "set_edr_inputs",
 })
 
 
