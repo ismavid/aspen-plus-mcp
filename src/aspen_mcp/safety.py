@@ -69,6 +69,8 @@ WRITE_TOOLS = frozenset({
     "move_blocks",
     # EDR
     "set_edr_inputs",
+    # property analysis
+    "add_binary_analysis", "add_pure_analysis",
 })
 
 

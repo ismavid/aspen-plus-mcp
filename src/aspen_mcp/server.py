@@ -87,6 +87,11 @@ from .tools.edr import (
     tool_set_edr_inputs,
     tool_get_utility_costs,
 )
+from .tools.prop_analysis import (
+    tool_add_binary_analysis,
+    tool_add_pure_analysis,
+    tool_get_property_analysis,
+)
 from .tools.analysis import (
     tool_sensitivity,
     tool_export_report_file,
@@ -984,6 +989,35 @@ def create_server() -> FastMCP:
         usage/cost. Needs utilities defined and a run. Capital cost (Economic
         Evaluation) and Energy Analyzer are not scriptable on V15."""
         return tool_get_utility_costs()
+
+    @tool()
+    def add_binary_analysis(name: str, comp1: str, comp2: str, kind: str = "TXY",
+                            pressures: list[float] | float | None = None,
+                            temperatures: list[float] | float | None = None,
+                            units: str | None = None, points: int = 11,
+                            basis: str = "MOLEFRAC", property_method: str | None = None) -> str:
+        """Create a binary property analysis (Txy at given pressures, or Pxy at given
+        temperatures) over x(comp1) = 0..1 in `points` steps. units: pressure unit for
+        TXY (default atm) or temperature unit for PXY (default C). Run, then
+        get_property_analysis(name)."""
+        return tool_add_binary_analysis(name, comp1, comp2, kind, pressures, temperatures,
+                                        units, points, basis, property_method)
+
+    @tool()
+    def add_pure_analysis(name: str, prop: str, components: list[str], t_lower: float,
+                          t_upper: float, points: int = 11, t_units: str | None = None,
+                          pressure: float = 1.0, p_units: str | None = None,
+                          property_method: str | None = None) -> str:
+        """Create a pure-component property analysis (prop e.g. CP, CPIG, DHVL, PL, RHO,
+        MU) over a temperature range at one pressure."""
+        return tool_add_pure_analysis(name, prop, components, t_lower, t_upper, points,
+                                      t_units, pressure, p_units, property_method)
+
+    @tool()
+    def get_property_analysis(name: str) -> dict:
+        """Read a property analysis result table (columns such as "TEMP TOTAL",
+        "MOLEFRAC(C,N) TOLUENE", "KVL TOTAL TOLUENE"; vapour y = K*x added for binaries)."""
+        return tool_get_property_analysis(name)
 
     @tool()
     def list_tear_streams() -> list[str]:
