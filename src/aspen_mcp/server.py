@@ -80,6 +80,7 @@ from .tools.analysis_objects import (
     tool_add_constraint,
     tool_add_transfer,
 )
+from .tools.layout import tool_get_layout, tool_move_blocks
 from .tools.analysis import (
     tool_sensitivity,
     tool_export_report_file,
@@ -924,6 +925,28 @@ def create_server() -> FastMCP:
         """Delete a design spec, calculator, transfer, sensitivity, optimization or
         constraint by kind and name."""
         return tool_remove_flowsheeting_object(kind, name)
+
+    @tool()
+    def get_layout() -> dict:
+        """Read block and stream positions on the flowsheet drawing.
+
+        Positions are not in the COM tree, so the working copy is saved as .bkp
+        and its graphics section is read. Units are Aspen drawing units (x right, y up).
+        """
+        return tool_get_layout()
+
+    @tool()
+    def move_blocks(moves: dict, relative: bool = False, move_terminals: bool = True) -> str:
+        """Move blocks on the flowsheet drawing.
+
+        moves: {"B1": [x, y]} absolute positions, or [dx, dy] offsets with relative=True.
+        Streams attached to a moved block follow it: feeds/products move rigidly
+        (move_terminals=False keeps their free ends in place), and a stream between
+        two blocks has only the moved block's end shifted.
+        Works on the working copy: saves it as .bkp, edits the drawing, reopens it.
+        Refused on a document attached from the GUI.
+        """
+        return tool_move_blocks(moves, relative, move_terminals)
 
     @tool()
     def list_tear_streams() -> list[str]:

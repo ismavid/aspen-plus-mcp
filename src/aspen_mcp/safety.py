@@ -65,6 +65,8 @@ WRITE_TOOLS = frozenset({
     "add_sensitivity", "add_optimization", "add_constraint", "add_transfer",
     # utilities
     "add_utility", "batch_add_utilities", "remove_utility",
+    # flowsheet drawing
+    "move_blocks",
 })
 
 
